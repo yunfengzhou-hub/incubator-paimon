@@ -18,6 +18,9 @@
 
 package org.apache.paimon.flink;
 
+import org.apache.flink.table.catalog.CatalogMaterializedTable;
+import org.apache.flink.table.catalog.IntervalFreshness;
+import org.apache.flink.table.catalog.ResolvedCatalogMaterializedTable;
 import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Identifier;
@@ -76,9 +79,19 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import static org.apache.flink.table.factories.FactoryUtil.CONNECTOR;
+import static org.apache.flink.table.utils.EncodingUtils.decodeBase64ToBytes;
 import static org.apache.paimon.CoreOptions.SCAN_FILE_CREATION_TIME_MILLIS;
 import static org.apache.paimon.flink.FlinkCatalogOptions.DISABLE_CREATE_TABLE_IN_DEFAULT_DB;
 import static org.apache.paimon.flink.FlinkCatalogOptions.LOG_SYSTEM_AUTO_REGISTER;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_DEFINITION_QUERY;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_INTERVAL_FRESHNESS;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_INTERVAL_FRESHNESS_TIME_UNIT;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_LOGICAL_REFRESH_MODE;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_REFRESH_HANDLER_BYTES;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_REFRESH_HANDLER_DESCRIPTION;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_REFRESH_MODE;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_REFRESH_STATUS;
+import static org.apache.paimon.flink.FlinkConnectorOptions.CATALOG_MATERIALIZED_TABLE_SNAPSHOT;
 import static org.apache.paimon.flink.FlinkConnectorOptions.LOG_SYSTEM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -623,6 +636,45 @@ public class FlinkCatalogTest {
                 new ResolvedCatalogTable(tableDescriptor.toCatalogTable(), resolvedSchema);
         catalog.createTable(path1, catalogTable, false);
         checkCreateTable(path1, catalogTable, (CatalogTable) catalog.getTable(path1));
+    }
+
+    @Test
+    void testCreateMaterializedTable() throws Exception {
+        catalog.createDatabase(path1.getDatabaseName(), null, false);
+
+        Schema schema = Schema.newBuilder()
+                .column("k", DataTypes.INT())
+                .column("v", DataTypes.STRING())
+                .build();
+
+
+        Map<String, String> optionsMap = new HashMap<>();
+        optionsMap.put("test-key", "test-value");
+
+        CatalogMaterializedTable expectedTable = CatalogMaterializedTable.newBuilder()
+                .schema(schema)
+                .comment("test comment")
+                .partitionKeys(Collections.singletonList("k"))
+                .options(optionsMap)
+                .snapshot(100L)
+                .definitionQuery("definition query")
+                .freshness(IntervalFreshness.ofSecond("100"))
+                .logicalRefreshMode(CatalogMaterializedTable.LogicalRefreshMode.CONTINUOUS)
+                .refreshMode(CatalogMaterializedTable.RefreshMode.FULL)
+                .refreshStatus(CatalogMaterializedTable.RefreshStatus.ACTIVATED)
+                .refreshHandlerDescription("test description")
+                .serializedRefreshHandler(decodeBase64ToBytes(""))
+                .build();
+
+        CatalogMaterializedTable resolvedTable = new ResolvedCatalogMaterializedTable(
+                expectedTable,
+                ResolvedSchema.of(Column.physical("k", DataTypes.INT()),
+                        Column.physical("v", DataTypes.STRING()))
+        );
+
+        catalog.createTable(path1, resolvedTable, false);
+        CatalogBaseTable actualTable = catalog.getTable(path1);
+        assertThat(actualTable).isEqualTo(expectedTable);
     }
 
     private void checkCreateTable(ObjectPath path, CatalogTable expected, CatalogTable actual) {

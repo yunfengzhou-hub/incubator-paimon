@@ -30,6 +30,10 @@ import org.apache.paimon.options.description.Description;
 import org.apache.paimon.options.description.InlineElement;
 import org.apache.paimon.options.description.TextElement;
 
+import org.apache.flink.table.catalog.CatalogBaseTable;
+import org.apache.flink.table.catalog.CatalogMaterializedTable;
+import org.apache.flink.table.catalog.IntervalFreshness;
+
 import java.lang.reflect.Field;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -405,6 +409,71 @@ public class FlinkConnectorOptions {
                     .noDefaultValue()
                     .withDescription(
                             "Optional endInput watermark used in case of batch mode or bounded stream.");
+
+    public static final ConfigOption<CatalogBaseTable.TableKind> CATALOG_TABLE_TYPE =
+            key("catalog-table.type")
+                    .enumType(CatalogBaseTable.TableKind.class)
+                    .defaultValue(CatalogBaseTable.TableKind.TABLE)
+                    .withDescription("foobar");
+
+    public static final ConfigOption<Long> CATALOG_MATERIALIZED_TABLE_SNAPSHOT =
+            key("catalog-materialized-table.snapshot")
+                    .longType()
+                    .noDefaultValue()
+                    .withDescription("foobar");
+
+    public static final ConfigOption<String> CATALOG_MATERIALIZED_TABLE_DEFINITION_QUERY =
+            key("catalog-materialized-table.definition-query")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("foobar");
+
+    public static final ConfigOption<String> CATALOG_MATERIALIZED_TABLE_INTERVAL_FRESHNESS =
+            key("catalog-materialized-table.interval-freshness")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("foobar");
+
+    public static final ConfigOption<IntervalFreshness.TimeUnit>
+            CATALOG_MATERIALIZED_TABLE_INTERVAL_FRESHNESS_TIME_UNIT =
+                    key("catalog-materialized-table.interval-freshness.time-unit")
+                            .enumType(IntervalFreshness.TimeUnit.class)
+                            .noDefaultValue()
+                            .withDescription("foobar");
+
+    public static final ConfigOption<CatalogMaterializedTable.LogicalRefreshMode>
+            CATALOG_MATERIALIZED_TABLE_LOGICAL_REFRESH_MODE =
+                    key("catalog-materialized-table.logical-refresh-mode")
+                            .enumType(CatalogMaterializedTable.LogicalRefreshMode.class)
+                            .noDefaultValue()
+                            .withDescription("foobar");
+
+    public static final ConfigOption<CatalogMaterializedTable.RefreshMode>
+            CATALOG_MATERIALIZED_TABLE_REFRESH_MODE =
+                    key("catalog-materialized-table.refresh-mode")
+                            .enumType(CatalogMaterializedTable.RefreshMode.class)
+                            .noDefaultValue()
+                            .withDescription("foobar");
+
+    public static final ConfigOption<CatalogMaterializedTable.RefreshStatus>
+            CATALOG_MATERIALIZED_TABLE_REFRESH_STATUS =
+                    key("catalog-materialized-table.refresh-status")
+                            .enumType(CatalogMaterializedTable.RefreshStatus.class)
+                            .noDefaultValue()
+                            .withDescription("foobar");
+
+    public static final ConfigOption<String>
+            CATALOG_MATERIALIZED_TABLE_REFRESH_HANDLER_DESCRIPTION =
+                    key("catalog-materialized-table.refresh-handler-description")
+                            .stringType()
+                            .noDefaultValue()
+                            .withDescription("foobar");
+
+    public static final ConfigOption<String> CATALOG_MATERIALIZED_TABLE_REFRESH_HANDLER_BYTES =
+            key("catalog-materialized-table.refresh-handler-bytes")
+                    .stringType()
+                    .noDefaultValue()
+                    .withDescription("foobar");
 
     public static List<ConfigOption<?>> getOptions() {
         final Field[] fields = FlinkConnectorOptions.class.getFields();
