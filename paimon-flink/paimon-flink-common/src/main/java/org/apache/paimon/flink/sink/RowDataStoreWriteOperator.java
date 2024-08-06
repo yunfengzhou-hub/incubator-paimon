@@ -19,6 +19,7 @@
 package org.apache.paimon.flink.sink;
 
 import org.apache.paimon.data.InternalRow;
+import org.apache.paimon.flink.ProcessRecordAttributesUtil;
 import org.apache.paimon.flink.log.LogWriteCallback;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.SinkRecord;
@@ -34,6 +35,7 @@ import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.InternalTimerService;
 import org.apache.flink.streaming.api.operators.Output;
 import org.apache.flink.streaming.api.watermark.Watermark;
+import org.apache.flink.streaming.runtime.streamrecord.RecordAttributes;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.runtime.tasks.StreamTask;
@@ -135,6 +137,12 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
             SinkRecord logRecord = write.toLogRecord(record);
             logSinkFunction.invoke(logRecord, sinkContext);
         }
+    }
+
+    @Override
+    public void processRecordAttributes(RecordAttributes recordAttributes) throws Exception {
+        super.processRecordAttributes(recordAttributes);
+        ProcessRecordAttributesUtil.processWithWrite(recordAttributes, write);
     }
 
     @Override
