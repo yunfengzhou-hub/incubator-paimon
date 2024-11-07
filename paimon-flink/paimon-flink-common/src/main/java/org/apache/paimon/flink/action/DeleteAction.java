@@ -94,6 +94,6 @@ public class DeleteAction extends TableActionBase {
                                     return rowData;
                                 });
 
-        batchSink(dataStream).await();
+        batchSink(dataStream).getJobExecutionResult().get();
     }
 }

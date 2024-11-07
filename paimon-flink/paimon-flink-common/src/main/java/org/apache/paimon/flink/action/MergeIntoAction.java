@@ -254,7 +254,7 @@ public class MergeIntoAction extends TableActionBase {
     @Override
     public void run() throws Exception {
         DataStream<RowData> dataStream = buildDataStream();
-        batchSink(dataStream).await();
+        batchSink(dataStream).getJobExecutionResult().get();
     }
 
     public DataStream<RowData> buildDataStream() {

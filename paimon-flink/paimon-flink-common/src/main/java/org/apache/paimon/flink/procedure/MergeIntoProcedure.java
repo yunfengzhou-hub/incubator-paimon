@@ -26,7 +26,6 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.table.annotation.ArgumentHint;
 import org.apache.flink.table.annotation.DataTypeHint;
 import org.apache.flink.table.annotation.ProcedureHint;
-import org.apache.flink.table.api.TableResult;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.procedure.ProcedureContext;
 
@@ -202,8 +201,12 @@ public class MergeIntoProcedure extends ProcedureBase {
         action.validate();
 
         DataStream<RowData> dataStream = action.buildDataStream();
-        TableResult tableResult = action.batchSink(dataStream);
-        JobClient jobClient = tableResult.getJobClient().get();
+        JobClient jobClient;
+        try {
+            jobClient = action.batchSink(dataStream);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to execute mergeIntoProcedure", e);
+        }
 
         return execute(procedureContext, jobClient);
     }
