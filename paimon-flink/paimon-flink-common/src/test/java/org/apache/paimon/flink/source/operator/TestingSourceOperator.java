@@ -88,6 +88,7 @@ public class TestingSourceOperator<T> extends SourceOperator<T, SimpleSourceSpli
             boolean emitProgressiveWatermarks) {
 
         super(
+                null,
                 (context) -> reader,
                 eventGateway,
                 new SimpleSourceSplitSerializer(),
