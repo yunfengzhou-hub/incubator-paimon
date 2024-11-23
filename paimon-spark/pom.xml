@@ -322,7 +322,6 @@ under the License.
                         <checkMultipleScalaVersions>false</checkMultipleScalaVersions>
                         <args>
                             <arg>-nobootcp</arg>
-                            <arg>-target:jvm-${target.java.version}</arg>
                         </args>
                     </configuration>
                 </plugin>
