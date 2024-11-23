@@ -19,7 +19,6 @@
 package org.apache.paimon.flink.action.cdc;
 
 import org.apache.paimon.flink.action.cdc.format.DataFormat;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaActionUtils;
 import org.apache.paimon.flink.action.cdc.mongodb.MongoDBRecordParser;
 import org.apache.paimon.flink.action.cdc.mysql.MySqlActionUtils;
 import org.apache.paimon.flink.action.cdc.mysql.MySqlRecordParser;
@@ -36,12 +35,10 @@ import org.apache.flink.cdc.connectors.postgres.source.config.PostgresSourceOpti
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.pulsar.common.config.PulsarOptions;
 import org.apache.flink.connector.pulsar.source.PulsarSourceOptions;
-import org.apache.flink.streaming.connectors.kafka.table.KafkaConnectorOptions;
 
 import java.util.List;
 import java.util.Map;
 
-import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.KAFKA_CONF;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.MONGODB_CONF;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.MYSQL_CONF;
 import static org.apache.paimon.flink.action.cdc.CdcActionCommonUtils.POSTGRES_CONF;
@@ -138,18 +135,6 @@ public class SyncJobHandler {
                                     + "use postgres_sync_table instead.");
                 }
                 break;
-            case KAFKA:
-                checkRequiredOptions(
-                        cdcSourceConfig,
-                        KAFKA_CONF,
-                        KafkaConnectorOptions.VALUE_FORMAT,
-                        KafkaConnectorOptions.PROPS_BOOTSTRAP_SERVERS);
-                checkOneRequiredOption(
-                        cdcSourceConfig,
-                        KAFKA_CONF,
-                        KafkaConnectorOptions.TOPIC,
-                        KafkaConnectorOptions.TOPIC_PATTERN);
-                break;
             case PULSAR:
                 checkRequiredOptions(
                         cdcSourceConfig,
@@ -182,10 +167,6 @@ public class SyncJobHandler {
 
     public Source<CdcSourceRecord, ?, ?> provideSource() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.buildKafkaSource(
-                        cdcSourceConfig,
-                        provideDataFormat().createKafkaDeserializer(cdcSourceConfig));
             case PULSAR:
                 return PulsarActionUtils.buildPulsarSource(
                         cdcSourceConfig,
@@ -207,7 +188,6 @@ public class SyncJobHandler {
             case POSTGRES:
                 return new PostgresRecordParser(
                         cdcSourceConfig, computedColumns, typeMapping, metadataConverters);
-            case KAFKA:
             case PULSAR:
                 DataFormat dataFormat = provideDataFormat();
                 return dataFormat.createParser(typeMapping, computedColumns);
@@ -220,8 +200,6 @@ public class SyncJobHandler {
 
     public DataFormat provideDataFormat() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.getDataFormat(cdcSourceConfig);
             case PULSAR:
                 return PulsarActionUtils.getDataFormat(cdcSourceConfig);
             default:
@@ -232,10 +210,6 @@ public class SyncJobHandler {
 
     public MessageQueueSchemaUtils.ConsumerWrapper provideConsumer() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.getKafkaEarliestConsumer(
-                        cdcSourceConfig,
-                        provideDataFormat().createKafkaDeserializer(cdcSourceConfig));
             case PULSAR:
                 return PulsarActionUtils.createPulsarConsumer(
                         cdcSourceConfig,
@@ -253,7 +227,6 @@ public class SyncJobHandler {
     /** CDC source type. */
     public enum SourceType {
         MYSQL("MySQL Source", "MySQL-Paimon %s Sync: %s"),
-        KAFKA("Kafka Source", "Kafka-Paimon %s Sync: %s"),
         MONGODB("MongoDB Source", "MongoDB-Paimon %s Sync: %s"),
         PULSAR("Pulsar Source", "Pulsar-Paimon %s Sync: %s"),
         POSTGRES("Postgres Source", "Postgres-Paimon %s Sync: %s");

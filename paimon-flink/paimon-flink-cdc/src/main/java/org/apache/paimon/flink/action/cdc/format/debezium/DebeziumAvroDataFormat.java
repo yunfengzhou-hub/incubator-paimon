@@ -21,12 +21,10 @@ package org.apache.paimon.flink.action.cdc.format.debezium;
 import org.apache.paimon.flink.action.cdc.CdcSourceRecord;
 import org.apache.paimon.flink.action.cdc.format.AbstractDataFormat;
 import org.apache.paimon.flink.action.cdc.format.RecordParserFactory;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaDebeziumAvroDeserializationSchema;
 import org.apache.paimon.flink.action.cdc.pulsar.PulsarDebeziumAvroDeserializationSchema;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.streaming.connectors.kafka.KafkaDeserializationSchema;
 
 import java.util.function.Function;
 
@@ -39,12 +37,6 @@ public class DebeziumAvroDataFormat extends AbstractDataFormat {
     @Override
     protected RecordParserFactory parser() {
         return DebeziumAvroRecordParser::new;
-    }
-
-    @Override
-    protected Function<Configuration, KafkaDeserializationSchema<CdcSourceRecord>>
-            kafkaDeserializer() {
-        return KafkaDebeziumAvroDeserializationSchema::new;
     }
 
     @Override

@@ -49,7 +49,6 @@ public class CdcActionCommonUtils {
 
     private static final Logger LOG = LoggerFactory.getLogger(CdcActionCommonUtils.class);
 
-    public static final String KAFKA_CONF = "kafka_conf";
     public static final String MONGODB_CONF = "mongodb_conf";
     public static final String MYSQL_CONF = "mysql_conf";
     public static final String POSTGRES_CONF = "postgres_conf";
