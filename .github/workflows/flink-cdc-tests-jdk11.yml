@@ -18,6 +18,11 @@
 name: Flink CDC Tests on JDK 11
 
 on:
+  push:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   issue_comment:
     types: [created, edited, deleted]
 

@@ -19,6 +19,11 @@
 name: End to End Tests Flink 1.18 on JDK 11
 
 on:
+  push:
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**/*.md'
   issue_comment:
     types: [created, edited, deleted]
 
