@@ -21,6 +21,7 @@ package org.apache.paimon.flink.kafka;
 import org.apache.paimon.flink.sink.LogSinkFunction;
 import org.apache.paimon.table.sink.SinkRecord;
 
+import org.apache.flink.api.common.eventtime.Watermark;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.connectors.kafka.FlinkKafkaException;
@@ -92,4 +93,7 @@ public class KafkaSinkFunction extends FlinkKafkaProducer<SinkRecord> implements
     public void flush() throws FlinkKafkaException {
         super.preCommit(super.currentTransaction());
     }
+
+    @Override
+    public void writeWatermark(Watermark watermark) throws Exception {}
 }
