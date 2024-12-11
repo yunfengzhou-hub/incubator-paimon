@@ -25,6 +25,7 @@ import org.apache.paimon.data.JoinedRow;
 import org.apache.paimon.flink.FlinkConnectorOptions.LookupCacheMode;
 import org.apache.paimon.flink.FlinkRowData;
 import org.apache.paimon.flink.FlinkRowWrapper;
+import org.apache.paimon.flink.lookup.partitioner.ShuffleStrategy;
 import org.apache.paimon.flink.utils.TableScanUtils;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.predicate.Predicate;
@@ -89,6 +90,7 @@ public class FileStoreLookupFunction implements Serializable, Closeable {
     private final List<String> joinKeys;
     @Nullable private final Predicate predicate;
     @Nullable private final RefreshBlacklist refreshBlacklist;
+    @Nullable private final ShuffleStrategy strategy;
 
     private transient File path;
     private transient LookupTable lookupTable;
@@ -103,7 +105,11 @@ public class FileStoreLookupFunction implements Serializable, Closeable {
     @Nullable private Filter<InternalRow> cacheRowFilter;
 
     public FileStoreLookupFunction(
-            Table table, int[] projection, int[] joinKeyIndex, @Nullable Predicate predicate) {
+            Table table,
+            int[] projection,
+            int[] joinKeyIndex,
+            @Nullable Predicate predicate,
+            @Nullable ShuffleStrategy strategy) {
         if (!TableScanUtils.supportCompactDiffStreamingReading(table)) {
             TableScanUtils.streamingReadingValidate(table);
         }
@@ -138,6 +144,8 @@ public class FileStoreLookupFunction implements Serializable, Closeable {
         this.refreshBlacklist =
                 RefreshBlacklist.create(
                         table.options().get(LOOKUP_REFRESH_TIME_PERIODS_BLACKLIST.key()));
+
+        this.strategy = strategy;
     }
 
     public void open(FunctionContext context) throws Exception {
@@ -384,8 +392,12 @@ public class FileStoreLookupFunction implements Serializable, Closeable {
      * @return the set of bucket IDs to be cached
      */
     protected Set<Integer> getRequireCachedBucketIds() {
-        // TODO: Implement the method when Flink support bucket shuffle for lookup join.
-        return null;
+        if (strategy == null) {
+            return null;
+        }
+        return strategy.getRequiredCacheBucketIds(
+                functionContext.getTaskInfo().getIndexOfThisSubtask(),
+                functionContext.getTaskInfo().getNumberOfParallelSubtasks());
     }
 
     protected void setCacheRowFilter(@Nullable Filter<InternalRow> cacheRowFilter) {
