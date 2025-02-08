@@ -39,6 +39,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.TupleTypeInfo;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.DataStreamSink;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.operators.OneInputStreamOperatorFactory;
 
 import javax.annotation.Nullable;
@@ -51,6 +52,7 @@ import static org.apache.paimon.crosspartition.IndexBootstrap.bootstrapType;
 import static org.apache.paimon.flink.FlinkConnectorOptions.SINK_CROSS_PARTITION_MANAGED_MEMORY;
 import static org.apache.paimon.flink.sink.FlinkStreamPartitioner.partition;
 import static org.apache.paimon.flink.utils.ManagedMemoryUtils.declareManagedMemory;
+import static org.apache.paimon.flink.utils.ParallelismUtils.forwardParallelism;
 
 /** Sink for global dynamic bucket table. */
 public class GlobalDynamicBucketSink extends FlinkWriteSink<Tuple2<InternalRow, Integer>> {
@@ -83,15 +85,13 @@ public class GlobalDynamicBucketSink extends FlinkWriteSink<Tuple2<InternalRow, 
         // input -- bootstrap -- shuffle by key hash --> bucket-assigner -- shuffle by bucket -->
         // writer --> committer
 
-        DataStream<Tuple2<KeyPartOrRow, InternalRow>> bootstraped =
+        SingleOutputStreamOperator<Tuple2<KeyPartOrRow, InternalRow>> bootstraped =
                 input.transform(
-                                "INDEX_BOOTSTRAP",
-                                new InternalTypeInfo<>(
-                                        new KeyWithRowSerializer<>(
-                                                bootstrapSerializer, rowSerializer)),
-                                new IndexBootstrapOperator.Factory<>(
-                                        new IndexBootstrap(table), r -> r))
-                        .setParallelism(input.getParallelism());
+                        "INDEX_BOOTSTRAP",
+                        new InternalTypeInfo<>(
+                                new KeyWithRowSerializer<>(bootstrapSerializer, rowSerializer)),
+                        new IndexBootstrapOperator.Factory<>(new IndexBootstrap(table), r -> r));
+        forwardParallelism(bootstraped, input);
 
         // 1. shuffle by key hash
         Integer assignerParallelism =
@@ -110,13 +110,12 @@ public class GlobalDynamicBucketSink extends FlinkWriteSink<Tuple2<InternalRow, 
         // 2. bucket-assigner
         TupleTypeInfo<Tuple2<InternalRow, Integer>> rowWithBucketType =
                 new TupleTypeInfo<>(input.getType(), BasicTypeInfo.INT_TYPE_INFO);
-        DataStream<Tuple2<InternalRow, Integer>> bucketAssigned =
-                partitionByKeyHash
-                        .transform(
-                                "cross-partition-bucket-assigner",
-                                rowWithBucketType,
-                                GlobalIndexAssignerOperator.forRowData(table))
-                        .setParallelism(partitionByKeyHash.getParallelism());
+        SingleOutputStreamOperator<Tuple2<InternalRow, Integer>> bucketAssigned =
+                partitionByKeyHash.transform(
+                        "cross-partition-bucket-assigner",
+                        rowWithBucketType,
+                        GlobalIndexAssignerOperator.forRowData(table));
+        forwardParallelism(bucketAssigned, partitionByKeyHash);
 
         // declare managed memory for RocksDB
         declareManagedMemory(

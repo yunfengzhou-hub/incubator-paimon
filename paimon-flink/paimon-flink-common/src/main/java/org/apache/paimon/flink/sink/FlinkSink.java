@@ -69,6 +69,7 @@ import static org.apache.paimon.flink.FlinkConnectorOptions.SINK_OPERATOR_UID_SU
 import static org.apache.paimon.flink.FlinkConnectorOptions.SINK_USE_MANAGED_MEMORY;
 import static org.apache.paimon.flink.FlinkConnectorOptions.generateCustomUid;
 import static org.apache.paimon.flink.utils.ManagedMemoryUtils.declareManagedMemory;
+import static org.apache.paimon.flink.utils.ParallelismUtils.forwardParallelism;
 import static org.apache.paimon.utils.Preconditions.checkArgument;
 
 /** Abstract sink of paimon. */
@@ -216,17 +217,19 @@ public abstract class FlinkSink<T> implements Serializable {
         boolean writeOnly = table.coreOptions().writeOnly();
         SingleOutputStreamOperator<Committable> written =
                 input.transform(
-                                (writeOnly ? WRITER_WRITE_ONLY_NAME : WRITER_NAME)
-                                        + " : "
-                                        + table.name(),
-                                new CommittableTypeInfo(),
-                                createWriteOperatorFactory(
-                                        createWriteProvider(
-                                                env.getCheckpointConfig(),
-                                                isStreaming,
-                                                hasSinkMaterializer(input)),
-                                        commitUser))
-                        .setParallelism(parallelism == null ? input.getParallelism() : parallelism);
+                        (writeOnly ? WRITER_WRITE_ONLY_NAME : WRITER_NAME) + " : " + table.name(),
+                        new CommittableTypeInfo(),
+                        createWriteOperatorFactory(
+                                createWriteProvider(
+                                        env.getCheckpointConfig(),
+                                        isStreaming,
+                                        hasSinkMaterializer(input)),
+                                commitUser));
+        if (parallelism == null) {
+            forwardParallelism(written, input);
+        } else {
+            written.setParallelism(parallelism);
+        }
 
         Options options = Options.fromMap(table.options());
 
@@ -250,8 +253,8 @@ public abstract class FlinkSink<T> implements Serializable {
                             .transform(
                                     "Changelog Compact Worker",
                                     new CommittableTypeInfo(),
-                                    new ChangelogCompactWorkerOperator(table))
-                            .setParallelism(written.getParallelism());
+                                    new ChangelogCompactWorkerOperator(table));
+            forwardParallelism(written, input);
         }
 
         return written;
