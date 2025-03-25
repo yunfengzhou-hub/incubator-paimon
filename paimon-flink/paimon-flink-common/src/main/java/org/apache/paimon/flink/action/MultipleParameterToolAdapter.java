@@ -18,7 +18,7 @@
 
 package org.apache.paimon.flink.action;
 
-import org.apache.flink.api.java.utils.MultipleParameterTool;
+import org.apache.flink.util.MultipleParameterTool;
 
 import java.util.Collection;
 

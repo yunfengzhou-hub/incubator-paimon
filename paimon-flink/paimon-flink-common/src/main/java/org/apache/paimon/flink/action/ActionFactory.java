@@ -23,7 +23,7 @@ import org.apache.paimon.factories.FactoryException;
 import org.apache.paimon.factories.FactoryUtil;
 import org.apache.paimon.options.CatalogOptions;
 
-import org.apache.flink.api.java.utils.MultipleParameterTool;
+import org.apache.flink.util.MultipleParameterTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
