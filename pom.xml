@@ -417,45 +417,45 @@ under the License.
             </properties>
         </profile>
 
-        <profile>
-            <id>java11</id>
-            <activation>
-                <jdk>[11,)</jdk>
-            </activation>
-            <build>
-                <pluginManagement>
-                    <plugins>
+<!--        <profile>-->
+<!--            <id>java11</id>-->
+<!--            <activation>-->
+<!--                <jdk>[11,)</jdk>-->
+<!--            </activation>-->
+<!--            <build>-->
+<!--                <pluginManagement>-->
+<!--                    <plugins>-->
 
-                        <plugin>
-                            <groupId>org.codehaus.mojo</groupId>
-                            <artifactId>build-helper-maven-plugin</artifactId>
-                            <version>1.7</version>
-                        </plugin>
+<!--                        <plugin>-->
+<!--                            <groupId>org.codehaus.mojo</groupId>-->
+<!--                            <artifactId>build-helper-maven-plugin</artifactId>-->
+<!--                            <version>1.7</version>-->
+<!--                        </plugin>-->
 
-                        <plugin>
-                            <groupId>org.apache.maven.plugins</groupId>
-                            <artifactId>maven-compiler-plugin</artifactId>
-                            <version>3.8.0</version>
-                            <configuration>
-                                <source>${target.java.version}</source>
-                                <target>${target.java.version}</target>
-                                <!-- The semantics of this option are reversed, see MCOMPILER-209. -->
-                                <useIncrementalCompilation>false</useIncrementalCompilation>
-                                <compilerArgs>
-                                    <!-- Prevents recompilation due to missing package-info.class, see MCOMPILER-205 -->
-                                    <arg>-Xpkginfo:always</arg>
-                                    <arg>-Xlint:deprecation</arg>
-                                    <arg>--add-exports=java.base/sun.net.util=ALL-UNNAMED</arg>
-                                    <arg>--add-exports=java.management/sun.management=ALL-UNNAMED</arg>
-                                    <arg>--add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED</arg>
-                                    <arg>--add-exports=java.security.jgss/sun.security.krb5=ALL-UNNAMED</arg>
-                                </compilerArgs>
-                            </configuration>
-                        </plugin>
-                    </plugins>
-                </pluginManagement>
-            </build>
-        </profile>
+<!--                        <plugin>-->
+<!--                            <groupId>org.apache.maven.plugins</groupId>-->
+<!--                            <artifactId>maven-compiler-plugin</artifactId>-->
+<!--                            <version>3.8.0</version>-->
+<!--                            <configuration>-->
+<!--                                <source>${target.java.version}</source>-->
+<!--                                <target>${target.java.version}</target>-->
+<!--                                &lt;!&ndash; The semantics of this option are reversed, see MCOMPILER-209. &ndash;&gt;-->
+<!--                                <useIncrementalCompilation>false</useIncrementalCompilation>-->
+<!--                                <compilerArgs>-->
+<!--                                    &lt;!&ndash; Prevents recompilation due to missing package-info.class, see MCOMPILER-205 &ndash;&gt;-->
+<!--                                    <arg>-Xpkginfo:always</arg>-->
+<!--                                    <arg>-Xlint:deprecation</arg>-->
+<!--                                    <arg>&#45;&#45;add-exports=java.base/sun.net.util=ALL-UNNAMED</arg>-->
+<!--                                    <arg>&#45;&#45;add-exports=java.management/sun.management=ALL-UNNAMED</arg>-->
+<!--                                    <arg>&#45;&#45;add-exports=java.rmi/sun.rmi.registry=ALL-UNNAMED</arg>-->
+<!--                                    <arg>&#45;&#45;add-exports=java.security.jgss/sun.security.krb5=ALL-UNNAMED</arg>-->
+<!--                                </compilerArgs>-->
+<!--                            </configuration>-->
+<!--                        </plugin>-->
+<!--                    </plugins>-->
+<!--                </pluginManagement>-->
+<!--            </build>-->
+<!--        </profile>-->
     </profiles>
 
     <build>

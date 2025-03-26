@@ -50,6 +50,7 @@ import org.apache.flink.streaming.util.MockStreamingRuntimeContext;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 
 /**
  * A SourceOperator extension to simplify test setup.
@@ -97,6 +98,7 @@ public class TestingSourceOperator<T> extends SourceOperator<T, SimpleSourceSpli
             boolean emitProgressiveWatermarks) {
 
         super(
+                null,
                 (context) -> reader,
                 eventGateway,
                 new SimpleSourceSplitSerializer(),
@@ -105,7 +107,8 @@ public class TestingSourceOperator<T> extends SourceOperator<T, SimpleSourceSpli
                 new Configuration(),
                 "localhost",
                 emitProgressiveWatermarks,
-                () -> false);
+                () -> false,
+                new HashMap<>());
 
         this.subtaskIndex = subtaskIndex;
         this.parallelism = parallelism;

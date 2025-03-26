@@ -29,6 +29,7 @@ import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.streaming.connectors.kafka.KafkaSerializationSchema;
 import org.apache.kafka.clients.producer.Callback;
 import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.paimon.utils.ReflectionUtils;
 
 import java.util.Properties;
 
@@ -91,7 +92,8 @@ public class KafkaSinkFunction extends FlinkKafkaProducer<SinkRecord> implements
 
     @Override
     public void flush() throws FlinkKafkaException {
-        super.preCommit(super.currentTransaction());
+        ReflectionUtils.getMethod()
+        super.preCommit(this.currentTransaction());
     }
 
     @Override
