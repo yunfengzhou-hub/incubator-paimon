@@ -24,7 +24,6 @@ import org.apache.paimon.flink.action.cdc.TypeMapping;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
 
 import java.util.List;
 
@@ -43,9 +42,6 @@ public interface DataFormat {
      */
     AbstractRecordParser createParser(
             TypeMapping typeMapping, List<ComputedColumn> computedColumns);
-
-    KafkaRecordDeserializationSchema<CdcSourceRecord> createKafkaDeserializer(
-            Configuration cdcSourceConfig);
 
     DeserializationSchema<CdcSourceRecord> createPulsarDeserializer(Configuration cdcSourceConfig);
 }

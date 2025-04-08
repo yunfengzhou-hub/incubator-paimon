@@ -24,7 +24,6 @@ import org.apache.paimon.flink.action.cdc.TypeMapping;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
 
 import java.util.List;
 import java.util.function.Function;
@@ -35,10 +34,6 @@ public abstract class AbstractDataFormat implements DataFormat {
     /** Factory for creating AbstractRecordParser. */
     protected abstract RecordParserFactory parser();
 
-    /** Deserializer for Kafka Record. */
-    protected abstract Function<Configuration, KafkaRecordDeserializationSchema<CdcSourceRecord>>
-            kafkaDeserializer();
-
     /** Deserializer for Pulsar Record. */
     protected abstract Function<Configuration, DeserializationSchema<CdcSourceRecord>>
             pulsarDeserializer();
@@ -47,12 +42,6 @@ public abstract class AbstractDataFormat implements DataFormat {
     public AbstractRecordParser createParser(
             TypeMapping typeMapping, List<ComputedColumn> computedColumns) {
         return parser().createParser(typeMapping, computedColumns);
-    }
-
-    @Override
-    public KafkaRecordDeserializationSchema<CdcSourceRecord> createKafkaDeserializer(
-            Configuration cdcSourceConfig) {
-        return kafkaDeserializer().apply(cdcSourceConfig);
     }
 
     @Override

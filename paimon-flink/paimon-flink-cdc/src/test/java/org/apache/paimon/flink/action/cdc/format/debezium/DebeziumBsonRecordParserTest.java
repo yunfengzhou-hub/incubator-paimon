@@ -21,7 +21,6 @@ package org.apache.paimon.flink.action.cdc.format.debezium;
 import org.apache.paimon.flink.action.cdc.CdcSourceRecord;
 import org.apache.paimon.flink.action.cdc.TypeMapping;
 import org.apache.paimon.flink.action.cdc.format.DataFormat;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaActionUtils;
 import org.apache.paimon.flink.action.cdc.watermark.MessageQueueCdcTimestampExtractor;
 import org.apache.paimon.flink.sink.cdc.CdcRecord;
 import org.apache.paimon.flink.sink.cdc.CdcSchema;
@@ -35,8 +34,6 @@ import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.JsonNode;
 import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.paimon.shade.jackson2.com.fasterxml.jackson.databind.node.TextNode;
 
-import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -52,8 +49,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.assertj.core.api.Assertions.assertThat;
-
 /** Test for DebeziumBsonRecordParser. */
 public class DebeziumBsonRecordParserTest {
 
@@ -66,9 +61,6 @@ public class DebeziumBsonRecordParserTest {
 
     private static final Map<String, String> keyEvent = new HashMap<>();
 
-    private static KafkaRecordDeserializationSchema<CdcSourceRecord>
-            kafkaRecordDeserializationSchema = null;
-
     private static final Map<String, String> beforeEvent = new HashMap<>();
 
     private static final Map<String, String> afterEvent = new HashMap<>();
@@ -76,7 +68,6 @@ public class DebeziumBsonRecordParserTest {
     @BeforeAll
     public static void beforeAll() throws Exception {
         DataFormat dataFormat = new DebeziumBsonDataFormatFactory().create();
-        kafkaRecordDeserializationSchema = dataFormat.createKafkaDeserializer(null);
 
         keyEvent.put("_id", "67ab25755c0d5ac87eb8c632");
 
@@ -131,7 +122,6 @@ public class DebeziumBsonRecordParserTest {
                 key = json;
             } else {
                 // test kafka deserialization
-                records.add(deserializeKafkaSchema(key, json));
                 key = null;
             }
         }
@@ -259,16 +249,5 @@ public class DebeziumBsonRecordParserTest {
                                 Assertions.assertEquals(expectValue, resultMap.get(key));
                             });
         }
-    }
-
-    private static CdcSourceRecord deserializeKafkaSchema(String key, String value)
-            throws Exception {
-        KafkaActionUtils.SimpleCollector<CdcSourceRecord> collector =
-                new KafkaActionUtils.SimpleCollector<>();
-        kafkaRecordDeserializationSchema.deserialize(
-                new ConsumerRecord<>("topic", 0, 0, key.getBytes(), value.getBytes()), collector);
-        List<CdcSourceRecord> records = collector.getList();
-        assertThat(records).hasSize(1);
-        return records.get(0);
     }
 }

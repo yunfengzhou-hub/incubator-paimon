@@ -21,8 +21,6 @@ package org.apache.paimon.flink.action.cdc;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.flink.action.ActionBase;
 import org.apache.paimon.flink.action.ActionITCaseBase;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaSyncDatabaseActionFactory;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaSyncTableActionFactory;
 import org.apache.paimon.flink.action.cdc.mongodb.MongoDBSyncDatabaseActionFactory;
 import org.apache.paimon.flink.action.cdc.mongodb.MongoDBSyncTableActionFactory;
 import org.apache.paimon.flink.action.cdc.mysql.MySqlSyncDatabaseActionFactory;
@@ -271,10 +269,6 @@ public class CdcActionITCaseBase extends ActionITCaseBase {
                 return MySqlSyncTableActionFactory.IDENTIFIER;
             case "MySqlSyncDatabaseAction":
                 return MySqlSyncDatabaseActionFactory.IDENTIFIER;
-            case "KafkaSyncTableAction":
-                return KafkaSyncTableActionFactory.IDENTIFIER;
-            case "KafkaSyncDatabaseAction":
-                return KafkaSyncDatabaseActionFactory.IDENTIFIER;
             case "MongoDBSyncTableAction":
                 return MongoDBSyncTableActionFactory.IDENTIFIER;
             case "MongoDBSyncDatabaseAction":

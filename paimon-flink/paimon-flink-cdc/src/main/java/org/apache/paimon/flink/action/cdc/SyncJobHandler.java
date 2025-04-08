@@ -19,7 +19,6 @@
 package org.apache.paimon.flink.action.cdc;
 
 import org.apache.paimon.flink.action.cdc.format.DataFormat;
-import org.apache.paimon.flink.action.cdc.kafka.KafkaActionUtils;
 import org.apache.paimon.flink.action.cdc.mongodb.MongoDBRecordParser;
 import org.apache.paimon.flink.action.cdc.mysql.MySqlActionUtils;
 import org.apache.paimon.flink.action.cdc.mysql.MySqlRecordParser;
@@ -182,10 +181,6 @@ public class SyncJobHandler {
 
     public Source<CdcSourceRecord, ?, ?> provideSource() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.buildKafkaSource(
-                        cdcSourceConfig,
-                        provideDataFormat().createKafkaDeserializer(cdcSourceConfig));
             case PULSAR:
                 return PulsarActionUtils.buildPulsarSource(
                         cdcSourceConfig,
@@ -220,8 +215,6 @@ public class SyncJobHandler {
 
     public DataFormat provideDataFormat() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.getDataFormat(cdcSourceConfig);
             case PULSAR:
                 return PulsarActionUtils.getDataFormat(cdcSourceConfig);
             default:
@@ -232,10 +225,6 @@ public class SyncJobHandler {
 
     public MessageQueueSchemaUtils.ConsumerWrapper provideConsumer() {
         switch (sourceType) {
-            case KAFKA:
-                return KafkaActionUtils.getKafkaEarliestConsumer(
-                        cdcSourceConfig,
-                        provideDataFormat().createKafkaDeserializer(cdcSourceConfig));
             case PULSAR:
                 return PulsarActionUtils.createPulsarConsumer(
                         cdcSourceConfig,
