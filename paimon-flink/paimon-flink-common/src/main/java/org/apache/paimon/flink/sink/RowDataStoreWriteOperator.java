@@ -24,23 +24,35 @@ import org.apache.paimon.options.Options;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.sink.SinkRecord;
 
+import org.apache.flink.api.common.JobInfo;
+import org.apache.flink.api.common.TaskInfo;
 import org.apache.flink.api.common.functions.Function;
 import org.apache.flink.api.common.functions.OpenContext;
 import org.apache.flink.api.common.functions.RichFunction;
+import org.apache.flink.api.common.functions.RuntimeContext;
 import org.apache.flink.api.common.functions.util.FunctionUtils;
+import org.apache.flink.api.common.operators.MailboxExecutor;
+import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.state.CheckpointListener;
+import org.apache.flink.api.common.typeutils.TypeSerializer;
+import org.apache.flink.api.connector.sink2.WriterInitContext;
 import org.apache.flink.configuration.Configuration;
+import org.apache.flink.metrics.MetricGroup;
+import org.apache.flink.metrics.groups.SinkWriterMetricGroup;
+import org.apache.flink.runtime.metrics.groups.InternalSinkWriterMetricGroup;
 import org.apache.flink.runtime.state.StateInitializationContext;
 import org.apache.flink.runtime.state.StateSnapshotContext;
-import org.apache.flink.streaming.api.functions.sink.legacy.SinkFunction;
+import org.apache.flink.streaming.api.graph.StreamConfig;
 import org.apache.flink.streaming.api.operators.InternalTimerService;
 import org.apache.flink.streaming.api.operators.StreamOperator;
 import org.apache.flink.streaming.api.operators.StreamOperatorFactory;
 import org.apache.flink.streaming.api.operators.StreamOperatorParameters;
+import org.apache.flink.streaming.api.operators.StreamingRuntimeContext;
 import org.apache.flink.streaming.api.watermark.Watermark;
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 import org.apache.flink.streaming.runtime.tasks.ProcessingTimeService;
 import org.apache.flink.streaming.util.functions.StreamingFunctionUtils;
+import org.apache.flink.util.UserCodeClassLoader;
 
 import javax.annotation.Nullable;
 
@@ -49,7 +61,10 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Objects;
+import java.util.OptionalLong;
+import java.util.function.Supplier;
 
+import static org.apache.flink.util.Preconditions.checkNotNull;
 import static org.apache.paimon.CoreOptions.LOG_IGNORE_DELETE;
 
 /** A {@link PrepareCommitOperator} to write {@link InternalRow}. Record schema is fixed. */
@@ -58,6 +73,8 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
     private static final long serialVersionUID = 3L;
 
     @Nullable private final LogSinkFunction logSinkFunction;
+    private final MailboxExecutor mailboxExecutor;
+    private transient WriterInitContext writerInitContext;
     private transient SimpleContext sinkContext;
     @Nullable private transient LogWriteCallback logCallback;
     private transient boolean logIgnoreDelete;
@@ -70,17 +87,27 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
             FileStoreTable table,
             @Nullable LogSinkFunction logSinkFunction,
             StoreSinkWrite.Provider storeSinkWriteProvider,
-            String initialCommitUser) {
+            String initialCommitUser,
+            MailboxExecutor mailboxExecutor) {
         super(parameters, table, storeSinkWriteProvider, initialCommitUser);
         this.logSinkFunction = logSinkFunction;
         if (logSinkFunction != null) {
             FunctionUtils.setFunctionRuntimeContext(logSinkFunction, getRuntimeContext());
         }
+        this.mailboxExecutor = mailboxExecutor;
     }
 
     @Override
     public void initializeState(StateInitializationContext context) throws Exception {
         super.initializeState(context);
+        writerInitContext =
+                new InitContextImpl(
+                        getRuntimeContext(),
+                        processingTimeService,
+                        mailboxExecutor,
+                        InternalSinkWriterMetricGroup.wrap(getMetricGroup()),
+                        getOperatorConfig(),
+                        context.getRestoredCheckpointId());
 
         if (logSinkFunction != null) {
             StreamingFunctionUtils.restoreFunctionState(context, logSinkFunction);
@@ -98,9 +125,10 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
 
         this.sinkContext = new SimpleContext(getProcessingTimeService());
         if (logSinkFunction != null) {
-            openFunction(logSinkFunction);
+            logSinkFunction.setWriterInitContext(writerInitContext);
             logCallback = new LogWriteCallback();
             logSinkFunction.setWriteCallback(logCallback);
+            openFunction(logSinkFunction);
             logIgnoreDelete = Options.fromMap(table.options()).get(LOG_IGNORE_DELETE);
         }
     }
@@ -224,7 +252,7 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
         return committables;
     }
 
-    private class SimpleContext implements SinkFunction.Context {
+    private class SimpleContext implements LogSinkFunction.Context {
 
         @Nullable private Long timestamp;
 
@@ -274,13 +302,144 @@ public class RowDataStoreWriteOperator extends TableWriteOperator<InternalRow> {
                             table,
                             logSinkFunction,
                             storeSinkWriteProvider,
-                            initialCommitUser);
+                            initialCommitUser,
+                            getMailboxExecutor());
         }
 
         @Override
         @SuppressWarnings("rawtypes")
         public Class<? extends StreamOperator> getStreamOperatorClass(ClassLoader classLoader) {
             return RowDataStoreWriteOperator.class;
+        }
+    }
+
+    private static class InitContextImpl implements WriterInitContext {
+
+        private final ProcessingTimeService processingTimeService;
+
+        private final MailboxExecutor mailboxExecutor;
+
+        private final SinkWriterMetricGroup metricGroup;
+
+        private final StreamConfig operatorConfig;
+
+        private final OptionalLong restoredCheckpointId;
+
+        private final StreamingRuntimeContext runtimeContext;
+
+        public InitContextImpl(
+                StreamingRuntimeContext runtimeContext,
+                ProcessingTimeService processingTimeService,
+                MailboxExecutor mailboxExecutor,
+                SinkWriterMetricGroup metricGroup,
+                StreamConfig operatorConfig,
+                OptionalLong restoredCheckpointId) {
+            this.runtimeContext = checkNotNull(runtimeContext);
+            this.restoredCheckpointId = restoredCheckpointId;
+            this.mailboxExecutor = checkNotNull(mailboxExecutor);
+            this.processingTimeService = checkNotNull(processingTimeService);
+            this.metricGroup = checkNotNull(metricGroup);
+            this.operatorConfig = checkNotNull(operatorConfig);
+        }
+
+        @Override
+        public OptionalLong getRestoredCheckpointId() {
+            return restoredCheckpointId;
+        }
+
+        @Override
+        public JobInfo getJobInfo() {
+            return runtimeContext.getJobInfo();
+        }
+
+        @Override
+        public TaskInfo getTaskInfo() {
+            return runtimeContext.getTaskInfo();
+        }
+
+        RuntimeContext getRuntimeContext() {
+            return runtimeContext;
+        }
+
+        @Override
+        public UserCodeClassLoader getUserCodeClassLoader() {
+            return new UserCodeClassLoader() {
+                @Override
+                public ClassLoader asClassLoader() {
+                    return getRuntimeContext().getUserCodeClassLoader();
+                }
+
+                @Override
+                public void registerReleaseHookIfAbsent(
+                        String releaseHookName, Runnable releaseHook) {
+                    getRuntimeContext()
+                            .registerUserCodeClassLoaderReleaseHookIfAbsent(
+                                    releaseHookName, releaseHook);
+                }
+            };
+        }
+
+        @Override
+        public MailboxExecutor getMailboxExecutor() {
+            return mailboxExecutor;
+        }
+
+        @Override
+        public org.apache.flink.api.common.operators.ProcessingTimeService
+                getProcessingTimeService() {
+            return processingTimeService;
+        }
+
+        @Override
+        public SinkWriterMetricGroup metricGroup() {
+            return metricGroup;
+        }
+
+        @Override
+        public SerializationSchema.InitializationContext
+                asSerializationSchemaInitializationContext() {
+            return new InitContextInitializationContextAdapter(
+                    getUserCodeClassLoader(), () -> metricGroup.addGroup("user"));
+        }
+
+        @Override
+        public boolean isObjectReuseEnabled() {
+            return getRuntimeContext().isObjectReuseEnabled();
+        }
+
+        @Override
+        public <IN> TypeSerializer<IN> createInputSerializer() {
+            return operatorConfig
+                    .<IN>getTypeSerializerIn(0, getRuntimeContext().getUserCodeClassLoader())
+                    .duplicate();
+        }
+    }
+
+    private static class InitContextInitializationContextAdapter
+            implements SerializationSchema.InitializationContext {
+
+        private final UserCodeClassLoader userCodeClassLoader;
+        private final Supplier<MetricGroup> metricGroupSupplier;
+        private MetricGroup cachedMetricGroup;
+
+        public InitContextInitializationContextAdapter(
+                UserCodeClassLoader userCodeClassLoader,
+                Supplier<MetricGroup> metricGroupSupplier) {
+            this.userCodeClassLoader = userCodeClassLoader;
+            this.metricGroupSupplier = metricGroupSupplier;
+        }
+
+        @Override
+        public MetricGroup getMetricGroup() {
+            if (cachedMetricGroup == null) {
+                cachedMetricGroup = metricGroupSupplier.get();
+            }
+            return cachedMetricGroup;
+        }
+
+        @Override
+        public UserCodeClassLoader getUserCodeClassLoader() {
+            return userCodeClassLoader;
         }
     }
 }

@@ -47,7 +47,12 @@ public class RowUnawareBucketSink extends UnawareBucketSink<InternalRow> {
             @Override
             public StreamOperator createStreamOperator(StreamOperatorParameters parameters) {
                 return new RowDataStoreWriteOperator(
-                        parameters, table, logSinkFunction, writeProvider, commitUser) {
+                        parameters,
+                        table,
+                        logSinkFunction,
+                        writeProvider,
+                        commitUser,
+                        getMailboxExecutor()) {
 
                     @Override
                     protected StoreSinkWriteState createState(

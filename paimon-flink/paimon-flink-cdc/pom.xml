@@ -43,7 +43,7 @@ under the License.
         <mongodb.testcontainers.version>1.19.1</mongodb.testcontainers.version>
         <flink.connector.pulsar.version>4.0.0-1.17</flink.connector.pulsar.version>
         <confluent.platform.version>7.5.0</confluent.platform.version>
-        <flink.connector.kafka.version>3.3.0-1.20</flink.connector.kafka.version>
+        <flink.connector.kafka.version>4.0-SNAPSHOT</flink.connector.kafka.version>
         <bson.version>5.2.1</bson.version>
     </properties>
 

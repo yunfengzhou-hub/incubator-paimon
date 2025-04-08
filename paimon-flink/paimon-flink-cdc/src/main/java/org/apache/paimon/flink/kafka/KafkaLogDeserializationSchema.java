@@ -23,7 +23,7 @@ import org.apache.paimon.flink.Projection;
 
 import org.apache.flink.api.common.serialization.DeserializationSchema;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
-import org.apache.flink.streaming.connectors.kafka.KafkaDeserializationSchema;
+import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
 import org.apache.flink.table.data.GenericRowData;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
@@ -36,11 +36,12 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 
 import javax.annotation.Nullable;
 
+import java.io.IOException;
 import java.util.Objects;
 import java.util.stream.IntStream;
 
-/** A {@link KafkaDeserializationSchema} for the table with primary key in log store. */
-public class KafkaLogDeserializationSchema implements KafkaDeserializationSchema<RowData> {
+/** A {@link KafkaRecordDeserializationSchema} for the table with primary key in log store. */
+public class KafkaLogDeserializationSchema implements KafkaRecordDeserializationSchema<RowData> {
 
     private static final long serialVersionUID = 1L;
 
@@ -109,20 +110,9 @@ public class KafkaLogDeserializationSchema implements KafkaDeserializationSchema
     }
 
     @Override
-    public boolean isEndOfStream(RowData nextElement) {
-        return false;
-    }
-
-    @Override
-    public RowData deserialize(ConsumerRecord<byte[], byte[]> record) {
-        throw new RuntimeException(
-                "Please invoke DeserializationSchema#deserialize(byte[], Collector<RowData>) instead.");
-    }
-
-    @Override
     public void deserialize(
             ConsumerRecord<byte[], byte[]> record, Collector<RowData> underCollector)
-            throws Exception {
+            throws IOException {
         Collector<RowData> collector = projectCollector.project(underCollector);
 
         if (primaryKey.length > 0 && record.value() == null) {

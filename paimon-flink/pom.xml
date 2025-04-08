@@ -37,6 +37,7 @@ under the License.
         <module>${paimon-flinkx-common}</module>
         <module>paimon-flink-common</module>
         <module>paimon-flink-action</module>
+        <module>paimon-flink-cdc</module>
     </modules>
 
     <dependencies>

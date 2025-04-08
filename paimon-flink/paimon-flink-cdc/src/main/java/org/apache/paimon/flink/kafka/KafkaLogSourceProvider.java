@@ -116,13 +116,8 @@ public class KafkaLogSourceProvider implements LogSourceProvider {
 
     @VisibleForTesting
     KafkaRecordDeserializationSchema<RowData> createDeserializationSchema() {
-        return KafkaRecordDeserializationSchema.of(
-                new KafkaLogDeserializationSchema(
-                        physicalType,
-                        primaryKey,
-                        primaryKeyDeserializer,
-                        valueDeserializer,
-                        projectFields));
+        return new KafkaLogDeserializationSchema(
+                physicalType, primaryKey, primaryKeyDeserializer, valueDeserializer, projectFields);
     }
 
     private OffsetsInitializer toOffsetsInitializer(@Nullable Map<Integer, Long> bucketOffsets) {
