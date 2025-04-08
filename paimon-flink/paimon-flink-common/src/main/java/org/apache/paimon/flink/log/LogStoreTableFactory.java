@@ -34,7 +34,6 @@ import org.apache.flink.table.connector.ChangelogMode;
 import org.apache.flink.table.connector.format.DecodingFormat;
 import org.apache.flink.table.connector.format.EncodingFormat;
 import org.apache.flink.table.connector.format.Format;
-import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.factories.DeserializationFormatFactory;
@@ -65,12 +64,6 @@ public interface LogStoreTableFactory extends Factory {
             Context context,
             DynamicTableSource.Context sourceContext,
             @Nullable int[][] projectFields);
-
-    /**
-     * Creates a {@link LogSinkProvider} instance from a {@link CatalogTable} and additional context
-     * information.
-     */
-    LogSinkProvider createSinkProvider(Context context, DynamicTableSink.Context sinkContext);
 
     /**
      * Creates a {@link LogStoreRegister} instance for table ddl, it will register table to log

@@ -20,17 +20,10 @@ package org.apache.paimon.flink.sink;
 
 import org.apache.paimon.table.Table;
 
-import javax.annotation.Nullable;
-
 /** A special version {@link FlinkSinkBuilder} with log sink. */
 public class LogFlinkSinkBuilder extends FlinkSinkBuilder {
 
     public LogFlinkSinkBuilder(Table table) {
         super(table);
-    }
-
-    FlinkSinkBuilder logSinkFunction(@Nullable LogSinkFunction logSinkFunction) {
-        this.logSinkFunction = logSinkFunction;
-        return this;
     }
 }

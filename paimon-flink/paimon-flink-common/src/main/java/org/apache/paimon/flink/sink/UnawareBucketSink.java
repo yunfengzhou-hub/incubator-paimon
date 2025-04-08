@@ -49,18 +49,15 @@ import static org.apache.paimon.flink.utils.ParallelismUtils.setParallelism;
 public abstract class UnawareBucketSink<T> extends FlinkWriteSink<T> {
 
     protected final FileStoreTable table;
-    protected final LogSinkFunction logSinkFunction;
 
     @Nullable protected final Integer parallelism;
 
     public UnawareBucketSink(
             FileStoreTable table,
             @Nullable Map<String, String> overwritePartitions,
-            LogSinkFunction logSinkFunction,
             @Nullable Integer parallelism) {
         super(table, overwritePartitions);
         this.table = table;
-        this.logSinkFunction = logSinkFunction;
         this.parallelism = parallelism;
     }
 

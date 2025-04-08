@@ -23,7 +23,6 @@ import org.apache.paimon.TableType;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.catalog.PropertyChange;
-import org.apache.paimon.flink.log.LogSinkProvider;
 import org.apache.paimon.flink.log.LogSourceProvider;
 import org.apache.paimon.flink.log.LogStoreRegister;
 import org.apache.paimon.flink.log.LogStoreTableFactory;
@@ -60,7 +59,6 @@ import org.apache.flink.table.catalog.exceptions.DatabaseNotEmptyException;
 import org.apache.flink.table.catalog.exceptions.DatabaseNotExistException;
 import org.apache.flink.table.catalog.exceptions.TableAlreadyExistException;
 import org.apache.flink.table.catalog.exceptions.TableNotExistException;
-import org.apache.flink.table.connector.sink.DynamicTableSink;
 import org.apache.flink.table.connector.source.DynamicTableSource;
 import org.apache.flink.table.expressions.ResolvedExpression;
 import org.apache.flink.table.expressions.utils.ResolvedExpressionMock;
@@ -1027,12 +1025,6 @@ public class FlinkCatalogTest {
                 DynamicTableFactory.Context context,
                 DynamicTableSource.Context sourceContext,
                 @Nullable int[][] projectFields) {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public LogSinkProvider createSinkProvider(
-                DynamicTableFactory.Context context, DynamicTableSink.Context sinkContext) {
             throw new UnsupportedOperationException();
         }
 

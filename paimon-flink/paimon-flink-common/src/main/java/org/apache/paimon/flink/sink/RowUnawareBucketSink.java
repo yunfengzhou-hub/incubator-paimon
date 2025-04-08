@@ -32,27 +32,17 @@ import java.util.Map;
 public class RowUnawareBucketSink extends UnawareBucketSink<InternalRow> {
 
     public RowUnawareBucketSink(
-            FileStoreTable table,
-            Map<String, String> overwritePartitions,
-            LogSinkFunction logSinkFunction,
-            Integer parallelism) {
-        super(table, overwritePartitions, logSinkFunction, parallelism);
+            FileStoreTable table, Map<String, String> overwritePartitions, Integer parallelism) {
+        super(table, overwritePartitions, parallelism);
     }
 
     @Override
     protected OneInputStreamOperatorFactory<InternalRow, Committable> createWriteOperatorFactory(
             StoreSinkWrite.Provider writeProvider, String commitUser) {
-        return new RowDataStoreWriteOperator.Factory(
-                table, logSinkFunction, writeProvider, commitUser) {
+        return new RowDataStoreWriteOperator.Factory(table, writeProvider, commitUser) {
             @Override
             public StreamOperator createStreamOperator(StreamOperatorParameters parameters) {
-                return new RowDataStoreWriteOperator(
-                        parameters,
-                        table,
-                        logSinkFunction,
-                        writeProvider,
-                        commitUser,
-                        getMailboxExecutor()) {
+                return new RowDataStoreWriteOperator(parameters, table, writeProvider, commitUser) {
 
                     @Override
                     protected StoreSinkWriteState createState(

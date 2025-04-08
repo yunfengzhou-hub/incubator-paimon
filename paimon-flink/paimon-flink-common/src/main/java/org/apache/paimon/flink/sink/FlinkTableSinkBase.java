@@ -23,7 +23,6 @@ import org.apache.paimon.CoreOptions.ChangelogProducer;
 import org.apache.paimon.CoreOptions.LogChangelogMode;
 import org.apache.paimon.CoreOptions.MergeEngine;
 import org.apache.paimon.flink.PaimonDataStreamSinkProvider;
-import org.apache.paimon.flink.log.LogSinkProvider;
 import org.apache.paimon.flink.log.LogStoreTableFactory;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.table.Table;
@@ -118,20 +117,12 @@ public abstract class FlinkTableSinkBase
                     "Paimon doesn't support streaming INSERT OVERWRITE.");
         }
 
-        LogSinkProvider logSinkProvider = null;
-        if (logStoreTableFactory != null) {
-            logSinkProvider = logStoreTableFactory.createSinkProvider(this.context, context);
-        }
-
         Options conf = Options.fromMap(table.options());
         // Do not sink to log store when overwrite mode
-        final LogSinkFunction logSinkFunction =
-                overwrite ? null : (logSinkProvider == null ? null : logSinkProvider.createSink());
         return new PaimonDataStreamSinkProvider(
                 (dataStream) -> {
                     LogFlinkSinkBuilder builder = createSinkBuilder();
-                    builder.logSinkFunction(logSinkFunction)
-                            .forRowData(
+                    builder.forRowData(
                                     new DataStream<>(
                                             dataStream.getExecutionEnvironment(),
                                             dataStream.getTransformation()))

@@ -80,7 +80,7 @@ public class FlinkSinkTest {
         DataStreamSource<InternalRow> source =
                 streamExecutionEnvironment.fromCollection(
                         Collections.singletonList(GenericRow.of(1, 1)));
-        FlinkSink<InternalRow> flinkSink = new FixedBucketSink(fileStoreTable, null, null);
+        FlinkSink<InternalRow> flinkSink = new FixedBucketSink(fileStoreTable, null);
         DataStream<Committable> written = flinkSink.doWrite(source, "123", 1);
         OneInputStreamOperatorFactory<InternalRow, Committable> operatorFactory =
                 (OneInputStreamOperatorFactory<InternalRow, Committable>)

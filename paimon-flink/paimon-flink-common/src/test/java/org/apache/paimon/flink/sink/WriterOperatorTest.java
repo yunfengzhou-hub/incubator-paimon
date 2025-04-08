@@ -541,7 +541,6 @@ public class WriterOperatorTest {
             FileStoreTable fileStoreTable) {
         return new RowDataStoreWriteOperator.Factory(
                 fileStoreTable,
-                null,
                 (table, commitUser, state, ioManager, memoryPool, metricGroup) ->
                         new StoreSinkWriteImpl(
                                 table,
@@ -560,7 +559,6 @@ public class WriterOperatorTest {
             FileStoreTable fileStoreTable, boolean waitCompaction) {
         return new RowDataStoreWriteOperator.Factory(
                 fileStoreTable,
-                null,
                 (table, commitUser, state, ioManager, memoryPool, metricGroup) ->
                         new AsyncLookupSinkWrite(
                                 table,
