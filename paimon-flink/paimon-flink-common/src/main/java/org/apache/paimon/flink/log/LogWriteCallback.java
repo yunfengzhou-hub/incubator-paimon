@@ -19,6 +19,7 @@
 package org.apache.paimon.flink.log;
 
 import org.apache.paimon.flink.sink.LogSinkFunction.WriteCallback;
+import org.apache.paimon.flink.sink.WriterInitContextImpl;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -26,7 +27,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAccumulator;
 
 /** A {@link WriteCallback} implementation. */
-public class LogWriteCallback implements WriteCallback {
+public class LogWriteCallback implements WriteCallback, WriterInitContextImpl.WriteCallback {
 
     private final ConcurrentHashMap<Integer, LongAccumulator> offsetMap = new ConcurrentHashMap<>();
 

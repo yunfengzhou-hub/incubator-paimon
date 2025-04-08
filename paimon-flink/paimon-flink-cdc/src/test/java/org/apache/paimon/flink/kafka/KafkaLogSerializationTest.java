@@ -152,13 +152,13 @@ public class KafkaLogSerializationTest {
             throws Exception {
         KafkaLogSerializationSchema serializer =
                 createTestSerializationSchema(testContext("", mode, keyed, dynamicOptions));
-        serializer.open(null);
+        serializer.open(null, null);
         KafkaRecordDeserializationSchema<RowData> deserializer =
                 createTestDeserializationSchema(testContext("", mode, keyed, dynamicOptions));
         deserializer.open(null);
 
         SinkRecord input = testRecord(keyed, bucket, key, value, rowKind);
-        ProducerRecord<byte[], byte[]> record = serializer.serialize(input, null);
+        ProducerRecord<byte[], byte[]> record = serializer.serialize(input, null, null);
 
         if (bucket >= 0) {
             assertThat(record.partition().intValue()).isEqualTo(bucket);

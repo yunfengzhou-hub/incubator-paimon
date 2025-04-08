@@ -23,9 +23,12 @@ import org.apache.paimon.CoreOptions.LogConsistency;
 import org.apache.paimon.annotation.VisibleForTesting;
 import org.apache.paimon.flink.log.LogSinkProvider;
 import org.apache.paimon.flink.sink.LogSinkFunction;
+import org.apache.paimon.table.sink.SinkRecord;
 
 import org.apache.flink.api.common.serialization.SerializationSchema;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.Semantic;
+import org.apache.flink.connector.base.DeliveryGuarantee;
+import org.apache.flink.connector.kafka.sink.KafkaSink;
+import org.apache.flink.connector.kafka.sink.KafkaSinkBuilder;
 import org.apache.flink.table.data.RowData;
 
 import javax.annotation.Nullable;
@@ -66,18 +69,22 @@ public class KafkaLogSinkProvider implements LogSinkProvider {
 
     @Override
     public LogSinkFunction createSink() {
-        Semantic semantic;
+        DeliveryGuarantee guarantee;
         switch (consistency) {
             case TRANSACTIONAL:
-                semantic = Semantic.EXACTLY_ONCE;
+                guarantee = DeliveryGuarantee.EXACTLY_ONCE;
                 break;
             case EVENTUAL:
-                semantic = Semantic.AT_LEAST_ONCE;
+                guarantee = DeliveryGuarantee.AT_LEAST_ONCE;
                 break;
             default:
                 throw new IllegalArgumentException("Unsupported: " + consistency);
         }
-        return new KafkaSinkFunction(topic, createSerializationSchema(), properties, semantic);
+
+        KafkaSinkBuilder<SinkRecord> builder = KafkaSink.builder();
+        KafkaSink<SinkRecord> sink =
+                builder.setDeliveryGuarantee(guarantee).setKafkaProducerConfig(properties).build();
+        return new KafkaSinkWriterFunctionWrapper(sink);
     }
 
     @VisibleForTesting
