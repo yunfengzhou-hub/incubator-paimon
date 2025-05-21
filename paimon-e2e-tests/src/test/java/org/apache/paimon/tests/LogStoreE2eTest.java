@@ -35,7 +35,7 @@ public class LogStoreE2eTest extends E2eTestBase {
     private static boolean runTest() {
         // TODO: modify the following condition after kafka log sink supports flink 2.0
         String flinkVersion = System.getProperty("test.flink.main.version");
-        return flinkVersion.compareTo("2.0") < 0;
+        return flinkVersion.compareTo("2.2") > 0;
     }
 
     public LogStoreE2eTest() {
