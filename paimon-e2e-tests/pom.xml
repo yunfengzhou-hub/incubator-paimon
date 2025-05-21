@@ -293,6 +293,23 @@ under the License.
     </build>
 
     <profiles>
+        <profile>
+            <id>flink1</id>
+            <dependencies>
+                <dependency>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-flink1-cdc</artifactId>
+                    <version>${project.version}</version>
+                </dependency>
+            </dependencies>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+                <property>
+                    <name>flink1</name>
+                </property>
+            </activation>
+        </profile>
+
         <!-- Activate these profiles with -Pflink-x.xx to build and test against different Flink versions -->
         <profile>
             <id>flink-1.19</id>
