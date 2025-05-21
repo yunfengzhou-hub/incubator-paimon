@@ -34,6 +34,7 @@ under the License.
 
     <properties>
         <flink.version>${paimon-flink-common.flink.version}</flink.version>
+        <flink.connector.kafka.version>${paimon-flink-cdc.connector.kafka.version}</flink.connector.kafka.version>
     </properties>
 
     <dependencies>
@@ -52,6 +53,19 @@ under the License.
         <dependency>
             <groupId>org.apache.flink</groupId>
             <artifactId>flink-table-common</artifactId>
+            <version>${flink.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-kafka</artifactId>
+            <version>${flink.connector.kafka.version}</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-connector-base</artifactId>
             <version>${flink.version}</version>
             <scope>provided</scope>
         </dependency>

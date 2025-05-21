@@ -16,17 +16,11 @@
  * limitations under the License.
  */
 
-package org.apache.paimon.tests.cdc;
-
-import org.apache.paimon.flink.action.cdc.mysql.MySqlVersion;
+package org.apache.flink.streaming.api.operators.legacy;
 
 /**
- * E2e tests for {@link org.apache.paimon.flink.action.cdc.mysql.MySqlSyncTableAction} with MySQL
- * 5.7.
+ * The {@link org.apache.flink.streaming.api.operators.YieldingOperatorFactory} migrated from Flink
+ * 1.20 to resolve compatibility issues with Flink 2.x.
  */
-public class MySql57E2eTest extends MySqlCdcE2eTestBase {
-
-    public MySql57E2eTest() {
-        super(MySqlVersion.V5_7);
-    }
-}
+public interface YieldingOperatorFactory<OUT>
+        extends org.apache.flink.streaming.api.operators.YieldingOperatorFactory<OUT> {}

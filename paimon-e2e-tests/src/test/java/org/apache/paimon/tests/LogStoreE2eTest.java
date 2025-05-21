@@ -33,7 +33,7 @@ public class LogStoreE2eTest extends E2eTestBase {
     private int bucketNum;
 
     private static boolean runTest() {
-        // TODO: modify the following condition after paimon-flink-cdc supports flink 2.0
+        // TODO: modify the following condition after kafka log sink supports flink 2.0
         String flinkVersion = System.getProperty("test.flink.main.version");
         return flinkVersion.compareTo("2.0") < 0;
     }

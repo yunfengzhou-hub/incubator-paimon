@@ -56,6 +56,7 @@ public class WriterChainingStrategyTest {
                 "execution.checkpointing.interval",
                 TimeUtils.formatWithHighestUnit(Duration.ofMillis(500)));
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment(config);
+        env.setParallelism(1);
         tEnv = StreamTableEnvironment.create(env);
 
         String catalog = "PAIMON";
@@ -161,12 +162,17 @@ public class WriterChainingStrategyTest {
     }
 
     private List<JobVertex> verifyChaining(
-            boolean isWriterChainedWithUpstream, boolean isWriterChainedWithDownStream) {
+            boolean isWriterChainedWithUpstream, boolean isWriterChainedWithDownStream)
+            throws Exception {
+        tEnv.executeSql(
+                        "CREATE TEMPORARY TABLE filesystem_source (id INT, data STRING, dt STRING) "
+                                + "WITH ('connector' = 'filesystem', 'path' = 'foobar', 'format' = 'json')")
+                .await();
+
         CompiledPlan plan =
                 tEnv.compilePlanSql(
                         String.format(
-                                "INSERT INTO %s VALUES (1, 'AAA', ''), (2, 'BBB', '')",
-                                TABLE_NAME));
+                                "INSERT INTO %s SELECT * FROM filesystem_source", TABLE_NAME));
         List<Transformation<?>> transformations = CompiledPlanUtils.toTransformations(tEnv, plan);
         StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         transformations.forEach(env::addOperator);

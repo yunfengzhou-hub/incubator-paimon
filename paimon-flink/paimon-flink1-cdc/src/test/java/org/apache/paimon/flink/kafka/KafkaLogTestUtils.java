@@ -154,11 +154,10 @@ public class KafkaLogTestUtils {
                         .map(TypeConversions::fromLogicalToDataType)
                         .collect(Collectors.toList());
         CatalogTable origin =
-                CatalogTable.of(
-                        Schema.newBuilder().fromFields(fieldNames, fieldDataTypes).build(),
-                        null,
-                        Collections.emptyList(),
-                        options);
+                CatalogTable.newBuilder()
+                        .schema(Schema.newBuilder().fromFields(fieldNames, fieldDataTypes).build())
+                        .options(options)
+                        .build();
         List<Column> resolvedColumns =
                 IntStream.range(0, fieldNames.size())
                         .mapToObj(i -> Column.physical(fieldNames.get(i), fieldDataTypes.get(i)))

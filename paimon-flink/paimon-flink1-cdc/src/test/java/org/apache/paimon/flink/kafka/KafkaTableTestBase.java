@@ -20,7 +20,7 @@ package org.apache.paimon.flink.kafka;
 
 import org.apache.paimon.flink.util.AbstractTestBase;
 
-import org.apache.flink.streaming.api.environment.ExecutionCheckpointingOptions;
+import org.apache.flink.configuration.CheckpointingOptions;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
 import org.apache.flink.util.DockerImageVersions;
@@ -104,9 +104,7 @@ public abstract class KafkaTableTestBase extends AbstractTestBase {
     public void setup() {
         env = streamExecutionEnvironmentBuilder().streamingMode().build();
         tEnv = StreamTableEnvironment.create(env);
-        tEnv.getConfig()
-                .getConfiguration()
-                .set(ExecutionCheckpointingOptions.ENABLE_UNALIGNED, false);
+        tEnv.getConfig().getConfiguration().set(CheckpointingOptions.ENABLE_UNALIGNED, false);
 
         // Probe Kafka broker status per 30 seconds
         scheduleTimeoutLogger(

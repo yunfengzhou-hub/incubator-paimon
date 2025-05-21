@@ -18,6 +18,7 @@
 
 package org.apache.paimon.flink.action.cdc.kafka;
 
+import org.apache.paimon.annotation.VisibleForTesting;
 import org.apache.paimon.flink.action.cdc.CdcSourceRecord;
 import org.apache.paimon.flink.action.cdc.MessageQueueSchemaUtils;
 import org.apache.paimon.flink.action.cdc.format.DataFormat;
@@ -29,12 +30,12 @@ import org.apache.flink.connector.kafka.source.KafkaSource;
 import org.apache.flink.connector.kafka.source.KafkaSourceBuilder;
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer;
 import org.apache.flink.connector.kafka.source.reader.deserializer.KafkaRecordDeserializationSchema;
-import org.apache.flink.streaming.connectors.kafka.KafkaDeserializationSchema;
 import org.apache.flink.streaming.connectors.kafka.config.StartupMode;
 import org.apache.flink.streaming.connectors.kafka.table.KafkaConnectorOptions;
 import org.apache.flink.streaming.connectors.kafka.table.KafkaConnectorOptions.ScanStartupMode;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.api.ValidationException;
+import org.apache.flink.util.Collector;
 import org.apache.kafka.clients.admin.AdminClient;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -45,6 +46,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
@@ -73,7 +75,7 @@ public class KafkaActionUtils {
 
     public static KafkaSource<CdcSourceRecord> buildKafkaSource(
             Configuration kafkaConfig,
-            KafkaDeserializationSchema<CdcSourceRecord> deserializationSchema) {
+            KafkaRecordDeserializationSchema<CdcSourceRecord> deserializationSchema) {
         KafkaSourceBuilder<CdcSourceRecord> kafkaSourceBuilder = KafkaSource.builder();
 
         if (kafkaConfig.contains(KafkaConnectorOptions.TOPIC)) {
@@ -88,7 +90,7 @@ public class KafkaActionUtils {
         }
 
         kafkaSourceBuilder
-                .setDeserializer(KafkaRecordDeserializationSchema.of(deserializationSchema))
+                .setDeserializer(deserializationSchema)
                 .setGroupId(kafkaPropertiesGroupId(kafkaConfig));
 
         Properties properties = createKafkaProperties(kafkaConfig);
@@ -249,7 +251,7 @@ public class KafkaActionUtils {
 
     public static MessageQueueSchemaUtils.ConsumerWrapper getKafkaEarliestConsumer(
             Configuration kafkaConfig,
-            KafkaDeserializationSchema<CdcSourceRecord> deserializationSchema) {
+            KafkaRecordDeserializationSchema<CdcSourceRecord> deserializationSchema) {
         Properties props = createKafkaProperties(kafkaConfig);
 
         props.put(
@@ -324,12 +326,12 @@ public class KafkaActionUtils {
 
         private final KafkaConsumer<byte[], byte[]> consumer;
         private final String topic;
-        private final KafkaDeserializationSchema<CdcSourceRecord> deserializationSchema;
+        private final KafkaRecordDeserializationSchema<CdcSourceRecord> deserializationSchema;
 
         KafkaConsumerWrapper(
                 KafkaConsumer<byte[], byte[]> kafkaConsumer,
                 String topic,
-                KafkaDeserializationSchema<CdcSourceRecord> deserializationSchema) {
+                KafkaRecordDeserializationSchema<CdcSourceRecord> deserializationSchema) {
             this.consumer = kafkaConsumer;
             this.topic = topic;
             this.deserializationSchema = deserializationSchema;
@@ -339,16 +341,17 @@ public class KafkaActionUtils {
         public List<CdcSourceRecord> getRecords(int pollTimeOutMills) {
             ConsumerRecords<byte[], byte[]> consumerRecords =
                     consumer.poll(Duration.ofMillis(pollTimeOutMills));
-            return StreamSupport.stream(consumerRecords.records(topic).spliterator(), false)
-                    .map(
+            SimpleCollector<CdcSourceRecord> collector = new SimpleCollector<>();
+            StreamSupport.stream(consumerRecords.records(topic).spliterator(), false)
+                    .forEach(
                             consumerRecord -> {
                                 try {
-                                    return deserializationSchema.deserialize(consumerRecord);
+                                    deserializationSchema.deserialize(consumerRecord, collector);
                                 } catch (Exception e) {
                                     throw new RuntimeException(e);
                                 }
-                            })
-                    .collect(Collectors.toList());
+                            });
+            return collector.getList();
         }
 
         @Override
@@ -359,6 +362,27 @@ public class KafkaActionUtils {
         @Override
         public void close() {
             consumer.close();
+        }
+    }
+
+    /** A simple collector that collects the elements in a list. */
+    @VisibleForTesting
+    public static class SimpleCollector<T> implements Collector<T> {
+
+        private final List<T> list = new ArrayList<>();
+
+        public List<T> getList() {
+            return list;
+        }
+
+        @Override
+        public void collect(T record) {
+            list.add(record);
+        }
+
+        @Override
+        public void close() {
+            // do nothing
         }
     }
 }
