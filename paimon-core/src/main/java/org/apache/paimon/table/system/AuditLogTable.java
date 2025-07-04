@@ -138,6 +138,9 @@ public class AuditLogTable implements DataTable, ReadonlyTable {
     @Override
     public RowType rowType() {
         List<DataField> fields = new ArrayList<>();
+        if (!wrapped.primaryKeys().isEmpty()) {
+            fields.add(SpecialFields.SEQUENCE_NUMBER);
+        }
         fields.add(SpecialFields.ROW_KIND);
         fields.addAll(wrapped.rowType().getFields());
         return new RowType(fields);
@@ -597,11 +600,17 @@ public class AuditLogTable implements DataTable, ReadonlyTable {
         /** Default projection, just add row kind to the first. */
         private int[] defaultProjection() {
             int dataFieldCount = wrapped.rowType().getFieldCount();
-            int[] projection = new int[dataFieldCount + 1];
-            projection[0] = -1;
-            for (int i = 0; i < dataFieldCount; i++) {
-                projection[i + 1] = i;
+            int specialFieldCount = wrapped.primaryKeys().isEmpty() ? 1 : 2;
+            int[] projection = new int[dataFieldCount + specialFieldCount];
+
+            for (int i = 0; i < specialFieldCount; i++) {
+                projection[i] = -i - 1;
             }
+
+            for (int i = 0; i < dataFieldCount; i++) {
+                projection[i + specialFieldCount] = i;
+            }
+
             return projection;
         }
 
@@ -620,18 +629,22 @@ public class AuditLogTable implements DataTable, ReadonlyTable {
             List<DataField> fields = readType.getFields();
             int[] readProjection = new int[fields.size()];
 
-            boolean rowKindAppeared = false;
+            int rowKindAppeared = 0;
+            int sequenceNumberAppeared = 0;
             for (int i = 0; i < fields.size(); i++) {
                 String fieldName = fields.get(i).name();
                 if (fieldName.equals(SpecialFields.ROW_KIND.name())) {
-                    rowKindAppeared = true;
+                    rowKindAppeared = 1;
                     readProjection[i] = -1;
+                } else if (fieldName.equals(SpecialFields.SEQUENCE_NUMBER.name())) {
+                    sequenceNumberAppeared = 1;
+                    readProjection[i] = -2;
                 } else {
                     dataReadFields.add(fields.get(i));
                     // There is no row kind field. Keep it as it is
                     // Row kind field has occurred, and the following fields are offset by 1
                     // position
-                    readProjection[i] = rowKindAppeared ? i - 1 : i;
+                    readProjection[i] = i - rowKindAppeared - sequenceNumberAppeared;
                 }
             }
 
@@ -678,7 +691,7 @@ public class AuditLogTable implements DataTable, ReadonlyTable {
         @Override
         public boolean isNullAt(int pos) {
             if (indexMapping[pos] < 0) {
-                // row kind is always not null
+                // row kind and sequence number are always not null
                 return false;
             }
             return super.isNullAt(pos);
@@ -686,10 +699,20 @@ public class AuditLogTable implements DataTable, ReadonlyTable {
 
         @Override
         public BinaryString getString(int pos) {
+            // Getting the row kind
             if (indexMapping[pos] < 0) {
                 return BinaryString.fromString(row.getRowKind().shortString());
             }
             return super.getString(pos);
+        }
+
+        @Override
+        public long getLong(int pos) {
+            // Getting the sequence number.
+            if (indexMapping[pos] < 0) {
+                return row.getLong(row.getFieldCount() - indexMapping.length);
+            }
+            return super.getLong(pos);
         }
     }
 }

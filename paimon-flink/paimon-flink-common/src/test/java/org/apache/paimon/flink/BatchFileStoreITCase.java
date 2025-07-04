@@ -769,6 +769,18 @@ public class BatchFileStoreITCase extends CatalogITCaseBase {
     }
 
     @Test
+    public void testFrequentUpdate() throws Exception {
+        sql(
+                "CREATE TABLE test_scan_mode (id INT PRIMARY KEY NOT ENFORCED, v STRING) WITH ('changelog-producer' = 'input')");
+
+        sql(
+                "INSERT INTO test_scan_mode VALUES (1, 'A'), (1, 'B'), (1, 'C'), (1, 'D'), (1, 'E'), (1, 'F'), (1, 'G')");
+        System.out.println("Complete insert. Start select");
+        System.out.println(sql("SELECT * FROM `test_scan_mode$audit_log`"));
+        //        System.out.println(sql("SELECT _SEQUENCE_NUMBER, * FROM `test_scan_mode`"));
+    }
+
+    @Test
     public void testIncrementScanMode() throws Exception {
         sql(
                 "CREATE TABLE test_scan_mode (id INT PRIMARY KEY NOT ENFORCED, v STRING) WITH ('changelog-producer' = 'lookup')");
@@ -796,7 +808,7 @@ public class BatchFileStoreITCase extends CatalogITCaseBase {
                 sql(
                         "SELECT * FROM `test_scan_mode$audit_log` "
                                 + "/*+ OPTIONS('incremental-between'='1,8','incremental-between-scan-mode'='diff') */");
-        assertThat(result).containsExactlyInAnyOrder(Row.of("+I", 3, "C"));
+        assertThat(result).containsExactlyInAnyOrder(Row.of(3L, "+I", 3, "C"));
 
         result =
                 sql(
@@ -804,7 +816,9 @@ public class BatchFileStoreITCase extends CatalogITCaseBase {
                                 + "/*+ OPTIONS('incremental-between'='1,8','incremental-between-scan-mode'='delta') */");
         assertThat(result)
                 .containsExactlyInAnyOrder(
-                        Row.of("+I", 2, "B"), Row.of("-D", 2, "B"), Row.of("+I", 3, "C"));
+                        Row.of(1L, "+I", 2, "B"),
+                        Row.of(2L, "-D", 2, "B"),
+                        Row.of(3L, "+I", 3, "C"));
     }
 
     @Test
