@@ -21,6 +21,7 @@ package org.apache.paimon.flink;
 import org.apache.paimon.flink.sink.FlinkSinkBuilder;
 import org.apache.paimon.table.ChainTableStreamScan;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.utils.BlockingIterator;
 
 import org.apache.flink.api.common.JobID;
 import org.apache.flink.configuration.CheckpointingOptions;
@@ -42,9 +43,9 @@ import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -743,34 +744,64 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
      * because it.next() blocks indefinitely when no data is available, and JUnit @Timeout cannot
      * interrupt it.
      */
-    private List<String> collectRows(CloseableIterator<Row> it, int n, int timeoutSeconds)
-            throws Exception {
-        List<String> result = new ArrayList<>();
-        for (int i = 0; i < n; i++) {
-            CompletableFuture<String> future =
-                    CompletableFuture.supplyAsync(() -> it.next().toString());
-            try {
-                result.add(future.get(timeoutSeconds, TimeUnit.SECONDS));
-            } catch (java.util.concurrent.TimeoutException e) {
-                future.cancel(true);
-                it.close();
-                throw new AssertionError(
-                        "Streaming read blocked for "
-                                + timeoutSeconds
-                                + "s after collecting "
-                                + result.size()
-                                + "/"
-                                + n
-                                + " rows. Collected so far: "
-                                + result);
-            }
-        }
-        return result;
+    /**
+     * Collects {@code n} rows from a streaming iterator using the project-standard {@link
+     * BlockingIterator}.
+     */
+    private List<String> collectRows(CloseableIterator<Row> it, int n) throws Exception {
+        return BlockingIterator.of(it).collect(n, 30, TimeUnit.SECONDS).stream()
+                .map(Row::toString)
+                .collect(Collectors.toList());
     }
 
-    /** Default collectRows with 30s timeout. */
-    private List<String> collectRows(CloseableIterator<Row> it, int n) throws Exception {
-        return collectRows(it, n, 30);
+    /**
+     * Polls the given table until it contains at least {@code minRows} rows. Used instead of
+     * fixed-duration Thread.sleep to avoid flaky tests on slow CI.
+     */
+    private void waitForRowCount(String tableName, int minRows) throws Exception {
+        long deadline = System.currentTimeMillis() + 60_000;
+        int count = 0;
+        while (System.currentTimeMillis() < deadline) {
+            List<Row> rows = sql("SELECT * FROM " + tableName);
+            count = rows.size();
+            if (count >= minRows) {
+                return;
+            }
+            Thread.sleep(1000);
+        }
+        throw new AssertionError(
+                "Timed out waiting for " + minRows + " rows in " + tableName + ", got " + count);
+    }
+
+    /** Polls until all tasks of the given job are in RUNNING state. */
+    private void waitForJobRunning(JobClient jobClient) throws Exception {
+        Field field = jobClient.getClass().getDeclaredField("miniCluster");
+        field.setAccessible(true);
+        MiniCluster miniCluster = (MiniCluster) field.get(jobClient);
+        JobID jobID = jobClient.getJobID();
+
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (System.currentTimeMillis() < deadline) {
+            AtomicBoolean allRunning = new AtomicBoolean(true);
+            miniCluster
+                    .getExecutionGraph(jobID)
+                    .thenAccept(
+                            eg ->
+                                    eg.getAllExecutionVertices()
+                                            .forEach(
+                                                    v -> {
+                                                        if (v.getExecutionState()
+                                                                != ExecutionState.RUNNING) {
+                                                            allRunning.set(false);
+                                                        }
+                                                    }))
+                    .get();
+            if (allRunning.get()) {
+                return;
+            }
+            Thread.sleep(1000);
+        }
+        throw new AssertionError("Timed out waiting for job " + jobID + " to reach RUNNING state");
     }
 
     /**
@@ -841,7 +872,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 Row.ofKind(RowKind.INSERT, 6L, 1L, "new_6", "20250809"),
                 Row.ofKind(RowKind.INSERT, 7L, 1L, "new_7", "20250809"));
 
-        Thread.sleep(2000);
         List<String> phase2 = collectRows(it, 4);
         // changelog-producer=input: explicit -U/+U for updates
         assertThat(phase2)
@@ -857,8 +887,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                         + " VALUES (1, 1, 'base_1'), (2, 1, 'base_2'), (3, 1, 'base_3'),"
                         + " (4, 1, 'base_4'), (5, 1, 'base_5')");
 
-        Thread.sleep(2000);
-
         // Write delta AFTER snapshot — this proves snapshot writes don't trigger output.
         // If snapshot writes were detected, we'd see duplicate or unexpected rows.
         writeChangelogToBranch(
@@ -867,7 +895,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 "delta",
                 Row.ofKind(RowKind.INSERT, 100L, 1L, "phase3_probe", "20250810"));
 
-        Thread.sleep(2000);
         List<String> phase3 = collectRows(it, 1);
         assertThat(phase3)
                 .as("Only delta write should produce output, snapshot OVERWRITE should be ignored")
@@ -881,7 +908,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 Row.ofKind(RowKind.INSERT, 8L, 1L, "new_8", "20250810"),
                 Row.ofKind(RowKind.INSERT, 9L, 1L, "new_9", "20250810"));
 
-        Thread.sleep(2000);
         List<String> phase4 = collectRows(it, 2);
         assertThat(phase4)
                 .containsExactlyInAnyOrder(
@@ -922,7 +948,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 Row.ofKind(RowKind.INSERT, 10L, 1L, "new_10", "20250811"),
                 Row.ofKind(RowKind.INSERT, 11L, 1L, "new_11", "20250811"));
 
-        Thread.sleep(2000);
         List<String> phase5b = collectRows(it2, 2);
         assertThat(phase5b)
                 .containsExactlyInAnyOrder(
@@ -934,11 +959,11 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
     /**
      * Tests stateful restart of a chain table streaming read job using Flink checkpoint/restore.
      *
-     * <p>Phase 1: Write initial delta data, start streaming job, verify read. Phase 2: Trigger a
-     * checkpoint (saves enumerator state including nextDeltaSnapshotId), then cancel the job. Phase
-     * 3: Write new delta data while the job is down. Phase 4: Restart from checkpoint — the
-     * restored scan should skip doFullLoad() and only read Phase 3's new data. Phase 5: Verify
-     * incremental streaming continues to work after restore.
+     * <p>Phase 1: Write initial delta data, start streaming job. Phase 2: Write incremental delta,
+     * let Phase 2 consume it, then checkpoint and cancel. Phase 3: Write new delta data while the
+     * job is down. Phase 4: Restart from checkpoint — the restored scan must NOT re-read the
+     * already-consumed delta (verifies checkpoint() returns the advanced cursor, not the stale
+     * Phase 1 boundary). Phase 5: Verify incremental streaming continues after restore.
      */
     @Test
     @Timeout(180)
@@ -995,7 +1020,10 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         config.set(
                 CheckpointingOptions.EXTERNALIZED_CHECKPOINT_RETENTION,
                 ExternalizedCheckpointRetention.RETAIN_ON_CANCELLATION);
-        config.removeKey("execution.checkpointing.interval");
+        // Enable auto-checkpointing (1s) so Phase 2 data is committed before we take the
+        // savepoint. This ensures the enumerator's delta cursor has advanced past
+        // delta@20250809, which is the scenario the checkpoint() regression would break.
+        config.setString("execution.checkpointing.interval", "1000");
 
         // Same SQL for both phases → operator graph matches → state recovery works
         String streamSql = "INSERT INTO chain_restart_sink SELECT * FROM chain_restart";
@@ -1015,12 +1043,24 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         //noinspection OptionalGetWithoutIsPresent
         JobClient jobClient = tableResult.getJobClient().get();
 
-        // Wait for data to flow to the sink
-        Thread.sleep(5000);
+        // Wait for streaming job to be fully running before writing Phase 2 data.
+        waitForJobRunning(jobClient);
 
-        // === Phase 2: Trigger checkpoint and cancel job ===
-        // The checkpoint commits data to the sink table.
-        Thread.sleep(3000);
+        // === Phase 2: Write incremental delta, let Phase 2 consume it, THEN checkpoint ===
+        // This exercises the checkpoint() regression: if checkpoint() returns the stale
+        // Phase 1 boundary instead of the advanced delta cursor, restore would re-read
+        // delta@20250809 and produce duplicates.
+        sql(
+                "INSERT INTO `chain_restart$branch_delta` PARTITION (dt = '20250809')"
+                        + " VALUES (4, 1, 'new_4'), (5, 1, 'new_5')");
+
+        // Wait for auto-checkpoint to commit Phase 2 data to the sink. This proves the
+        // enumerator's scan has consumed delta@20250809 and its checkpoint() returned the
+        // advanced cursor — the exact scenario the regression would break.
+        waitForRowCount("chain_restart_sink", 7);
+
+        // Create a savepoint for restart. The enumerator state now includes the advanced
+        // delta cursor (past delta@20250809).
         String checkpointPath = triggerCheckpoint(jobClient);
 
         java.io.File cpFile =
@@ -1030,31 +1070,37 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         }
         assertThat(cpFile.exists()).as("Checkpoint directory should exist: " + cpFile).isTrue();
 
-        Thread.sleep(2000);
-        jobClient.cancel().get();
-
-        // Verify Phase 1 data via batch read from the sink table.
-        // Starting should include both snapshot-only (dt=20250807) and delta (dt=20250808).
-        List<String> phase1 =
+        // Verify Phase 1+2 data (committed by checkpoint).
+        List<String> phase1and2 =
                 sql("SELECT * FROM chain_restart_sink").stream()
                         .map(Row::toString)
-                        .collect(java.util.stream.Collectors.toList());
-        System.err.println("[TEST] Phase 1 sink rows: " + phase1);
-        assertThat(phase1)
-                .as("Phase 1: starting includes snapshot-only and delta partitions")
+                        .collect(Collectors.toList());
+        assertThat(phase1and2)
+                .as("Phase 1+2: sink has snapshot, delta@20250808, and delta@20250809")
                 .containsExactlyInAnyOrder(
                         "+I[1, 1, base_1, 20250808]",
                         "+I[2, 1, base_2, 20250808]",
                         "+I[3, 1, base_3, 20250808]",
                         "+I[10, 1, snap_10, 20250807]",
-                        "+I[11, 1, snap_11, 20250807]");
+                        "+I[11, 1, snap_11, 20250807]",
+                        "+I[4, 1, new_4, 20250809]",
+                        "+I[5, 1, new_5, 20250809]");
+
+        jobClient.cancel().get();
+
+        // Disable auto-checkpointing before restart to avoid conflicts between
+        // auto-checkpoints and manual triggerCheckpoint() on the new job.
+        config.removeKey("execution.checkpointing.interval");
 
         // === Phase 3: Write new delta data while job is stopped ===
         sql(
-                "INSERT INTO `chain_restart$branch_delta` PARTITION (dt = '20250809')"
-                        + " VALUES (4, 1, 'new_4'), (5, 1, 'new_5')");
+                "INSERT INTO `chain_restart$branch_delta` PARTITION (dt = '20250810')"
+                        + " VALUES (6, 1, 'new_6'), (7, 1, 'new_7')");
 
         // === Phase 4: Restart from checkpoint ===
+        // The restored scan should NOT re-read delta@20250809 (already consumed before
+        // checkpoint). If checkpoint() returned the stale Phase 1 boundary, delta@20250809
+        // would be re-read and produce duplicates.
         sEnv.getConfig()
                 .getConfiguration()
                 .setString("execution.state-recovery.path", checkpointPath);
@@ -1063,48 +1109,46 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         //noinspection OptionalGetWithoutIsPresent
         JobClient jobClient2 = tableResult2.getJobClient().get();
 
-        // Wait for restored scan to produce and commit data
-        Thread.sleep(5000);
-
-        // Trigger checkpoint to commit Phase 4 data
-        Thread.sleep(3000);
+        // Trigger checkpoint to commit Phase 4 data (restored scan output + Phase 3 delta).
+        waitForJobRunning(jobClient2);
         triggerCheckpoint(jobClient2);
-        Thread.sleep(2000);
+
+        // Poll sink until checkpoint commits all 9 rows (7 from Phase 1+2 + 2 from Phase 3).
+        waitForRowCount("chain_restart_sink", 9);
 
         // Read all records from the sink table
         List<String> phase4 =
                 sql("SELECT * FROM chain_restart_sink").stream()
                         .map(Row::toString)
-                        .collect(java.util.stream.Collectors.toList());
-        System.err.println("[TEST] Phase 4 sink rows (" + phase4.size() + "): " + phase4);
+                        .collect(Collectors.toList());
 
         // Verify new data is present
         assertThat(phase4)
                 .as("Stateful restart: sink should contain new delta data")
-                .contains("+I[4, 1, new_4, 20250809]", "+I[5, 1, new_5, 20250809]");
+                .contains("+I[6, 1, new_6, 20250810]", "+I[7, 1, new_7, 20250810]");
 
-        // Verify total count: should be 7 (5 Phase 1 + 2 Phase 4), not more (duplicates)
+        // Verify total count: 7 from Phase 1+2 + 2 from Phase 3 = 9, no duplicates
         assertThat(phase4.size())
-                .as("Should have exactly 7 records (no duplicates from state recovery)")
-                .isEqualTo(7);
+                .as("Should have exactly 9 records (no duplicates from state recovery)")
+                .isEqualTo(9);
 
         // === Phase 5: Verify incremental streaming continues after restore ===
         sql(
-                "INSERT INTO `chain_restart$branch_delta` PARTITION (dt = '20250810')"
-                        + " VALUES (6, 1, 'new_6')");
+                "INSERT INTO `chain_restart$branch_delta` PARTITION (dt = '20250811')"
+                        + " VALUES (8, 1, 'new_8')");
 
-        Thread.sleep(5000);
         triggerCheckpoint(jobClient2);
-        Thread.sleep(2000);
+
+        // Poll sink until checkpoint commits the new incremental row.
+        waitForRowCount("chain_restart_sink", 10);
 
         List<String> phase5 =
                 sql("SELECT * FROM chain_restart_sink").stream()
                         .map(Row::toString)
-                        .collect(java.util.stream.Collectors.toList());
-        System.err.println("[TEST] Phase 5 sink rows (" + phase5.size() + "): " + phase5);
+                        .collect(Collectors.toList());
         assertThat(phase5)
                 .as("Incremental streaming should continue after restore")
-                .contains("+I[6, 1, new_6, 20250810]");
+                .contains("+I[8, 1, new_8, 20250811]");
 
         jobClient2.cancel().get();
 
@@ -1191,7 +1235,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 "delta",
                 Row.ofKind(RowKind.INSERT, 20L, 1L, "incr_20", "20250810"));
 
-        Thread.sleep(2000);
         List<String> incr = collectRows(it, 1);
         assertThat(incr)
                 .as("Incremental: new delta data should stream through")
@@ -1391,7 +1434,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                         + " PARTITION (region = 'CN', dt = '20250809')"
                         + " VALUES (3, 1, 'cn_3')");
 
-        Thread.sleep(2000);
         List<String> incr = collectRows(it, 1);
         assertThat(incr)
                 .as("Incremental: new CN delta should stream through")
@@ -1403,7 +1445,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                         + " PARTITION (region = 'US', dt = '20250809')"
                         + " VALUES (13, 1, 'us_13')");
 
-        Thread.sleep(2000);
         List<String> incr2 = collectRows(it, 1);
         assertThat(incr2)
                 .as("Incremental: new US delta should stream through")
@@ -1575,78 +1616,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         assertThat(scan.checkpoint()).as("Checkpoint should be set after new starting").isNotNull();
     }
 
-    /** Tests streaming read with WHERE clause (partition predicate forwarding). */
-    @Test
-    @Timeout(120)
-    public void testStreamingReadWithFilter() throws Exception {
-        sql(
-                "CREATE TABLE chain_filter ("
-                        + "  k BIGINT, seq BIGINT, v STRING, dt STRING"
-                        + ") PARTITIONED BY (dt) WITH ("
-                        + "  'primary-key' = 'dt,k',"
-                        + "  'bucket-key' = 'k',"
-                        + "  'bucket' = '2',"
-                        + "  'sequence.field' = 'seq',"
-                        + "  'merge-engine' = 'deduplicate',"
-                        + "  'changelog-producer' = 'input',"
-                        + "  'chain-table.enabled' = 'true',"
-                        + "  'partition.timestamp-pattern' = '$dt',"
-                        + "  'partition.timestamp-formatter' = 'yyyyMMdd',"
-                        + "  'continuous.discovery-interval' = '1ms'"
-                        + ")");
-
-        String db = tEnv.getCurrentDatabase();
-        sql("CALL sys.create_branch('%s.chain_filter', 'snapshot')", db);
-        sql("CALL sys.create_branch('%s.chain_filter', 'delta')", db);
-        for (String tbl :
-                new String[] {
-                    "chain_filter", "chain_filter$branch_snapshot", "chain_filter$branch_delta"
-                }) {
-            sql(
-                    "ALTER TABLE `%s` SET ("
-                            + "  'scan.fallback-snapshot-branch' = 'snapshot',"
-                            + "  'scan.fallback-delta-branch' = 'delta')",
-                    tbl);
-        }
-
-        // Write snapshot data for dt=20250807 and dt=20250808
-        sql(
-                "INSERT INTO `chain_filter$branch_snapshot` PARTITION (dt = '20250807')"
-                        + " VALUES (1, 1, 'snap_1')");
-        sql(
-                "INSERT INTO `chain_filter$branch_delta` PARTITION (dt = '20250808')"
-                        + " VALUES (2, 1, 'delta_2'), (3, 1, 'delta_3')");
-        sql(
-                "INSERT INTO `chain_filter$branch_delta` PARTITION (dt = '20250809')"
-                        + " VALUES (4, 1, 'delta_4')");
-
-        // Streaming read with WHERE clause — only dt=20250808
-        CloseableIterator<Row> it =
-                sEnv.executeSql("SELECT * FROM chain_filter WHERE dt = '20250808'").collect();
-
-        // Starting should only return dt=20250808 data (delta-only partition)
-        List<String> startingRows = collectRows(it, 2);
-        assertThat(startingRows)
-                .as("Starting with WHERE dt=20250808 should only return that partition")
-                .containsExactlyInAnyOrder(
-                        "+I[2, 1, delta_2, 20250808]", "+I[3, 1, delta_3, 20250808]");
-
-        // Incremental: write to dt=20250808 (should stream through)
-        writeChangelogToBranch(
-                db,
-                "chain_filter",
-                "delta",
-                Row.ofKind(RowKind.INSERT, 5L, 1L, "incr_5", "20250808"));
-
-        Thread.sleep(2000);
-        List<String> incr = collectRows(it, 1);
-        assertThat(incr)
-                .as("Incremental write to dt=20250808 should stream through")
-                .containsExactlyInAnyOrder("+I[5, 1, incr_5, 20250808]");
-
-        it.close();
-    }
-
     /** Tests starting when delta branch is empty (only snapshot data). */
     @Test
     @Timeout(120)
@@ -1703,7 +1672,6 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 "delta",
                 Row.ofKind(RowKind.INSERT, 3L, 1L, "new_3", "20250808"));
 
-        Thread.sleep(2000);
         List<String> incr = collectRows(it, 1);
         assertThat(incr)
                 .as("First delta write should stream through after snapshot-only starting")
@@ -2006,5 +1974,152 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         assertThat(plan2.splits())
                 .as("Restore(null) should re-run Phase 1 with current data")
                 .isNotEmpty();
+    }
+
+    /**
+     * T5: Tests that chain table streaming read rejects partition filters via {@code withFilter}.
+     *
+     * <p>Partition filters interfere with the chain table Phase 1 logic (which determines the
+     * latest snapshot partition per group). This test verifies that a partition-only predicate is
+     * rejected with an UnsupportedOperationException.
+     */
+    @Test
+    @Timeout(60)
+    public void testStreamingReadRejectsPartitionFilter() throws Exception {
+        createChainTable("chain_pf_partition");
+        setupChainTableBranches("chain_pf_partition");
+
+        sql(
+                "INSERT INTO `chain_pf_partition$branch_delta` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 1, 'v1')");
+
+        FileStoreTable table = paimonTable("chain_pf_partition");
+        ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
+
+        // dt is the 4th field (index 3) in the schema: t1(0), t2(1), t3(2), dt(3)
+        org.apache.paimon.predicate.PredicateBuilder builder =
+                new org.apache.paimon.predicate.PredicateBuilder(table.rowType());
+
+        // Partition-only filter should be rejected
+        org.apache.paimon.predicate.Predicate partitionFilter =
+                builder.equal(3, org.apache.paimon.data.BinaryString.fromString("20250808"));
+        assertThatThrownBy(() -> scan.withFilter(partitionFilter))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Partition filter is not supported");
+    }
+
+    /**
+     * T6: Tests that non-partition filters work end-to-end in chain table streaming reads.
+     *
+     * <p>Verifies: (1) {@code withFilter} on a data column is accepted at the scan API level, (2)
+     * streaming {@code SELECT ... WHERE v = 'hello'} filters out non-matching rows, (3) the filter
+     * continues to apply to incrementally written data.
+     */
+    @Test
+    @Timeout(120)
+    public void testStreamingReadWithNonPartitionFilter() throws Exception {
+        sql(
+                "CREATE TABLE chain_data_filter ("
+                        + "  k BIGINT, seq BIGINT, v STRING, dt STRING"
+                        + ") PARTITIONED BY (dt) WITH ("
+                        + "  'primary-key' = 'dt,k',"
+                        + "  'bucket-key' = 'k',"
+                        + "  'bucket' = '2',"
+                        + "  'sequence.field' = 'seq',"
+                        + "  'merge-engine' = 'deduplicate',"
+                        + "  'changelog-producer' = 'input',"
+                        + "  'chain-table.enabled' = 'true',"
+                        + "  'partition.timestamp-pattern' = '$dt',"
+                        + "  'partition.timestamp-formatter' = 'yyyyMMdd',"
+                        + "  'continuous.discovery-interval' = '1ms'"
+                        + ")");
+
+        String db = tEnv.getCurrentDatabase();
+        sql("CALL sys.create_branch('%s.chain_data_filter', 'snapshot')", db);
+        sql("CALL sys.create_branch('%s.chain_data_filter', 'delta')", db);
+        for (String tbl :
+                new String[] {
+                    "chain_data_filter",
+                    "chain_data_filter$branch_snapshot",
+                    "chain_data_filter$branch_delta"
+                }) {
+            sql(
+                    "ALTER TABLE `%s` SET ("
+                            + "  'scan.fallback-snapshot-branch' = 'snapshot',"
+                            + "  'scan.fallback-delta-branch' = 'delta')",
+                    tbl);
+        }
+
+        // Write initial delta data with mixed values of v
+        sql(
+                "INSERT INTO `chain_data_filter$branch_delta` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 1, 'hello'), (2, 1, 'world'), (3, 1, 'hello'), (4, 1, 'foo')");
+
+        // Streaming read with WHERE on data column v — should only return v='hello' rows
+        CloseableIterator<Row> it =
+                sEnv.executeSql("SELECT * FROM chain_data_filter WHERE v = 'hello'").collect();
+
+        List<String> startingRows = collectRows(it, 2);
+        assertThat(startingRows)
+                .as("Starting with WHERE v='hello' should only return matching rows")
+                .containsExactlyInAnyOrder(
+                        "+I[1, 1, hello, 20250808]", "+I[3, 1, hello, 20250808]");
+
+        // Incremental: write more data with mixed v values
+        writeChangelogToBranch(
+                db,
+                "chain_data_filter",
+                "delta",
+                Row.ofKind(RowKind.INSERT, 5L, 1L, "hello", "20250809"),
+                Row.ofKind(RowKind.INSERT, 6L, 1L, "bar", "20250809"));
+
+        List<String> incrRows = collectRows(it, 1);
+        assertThat(incrRows)
+                .as("Incremental: only v='hello' row should stream through")
+                .containsExactlyInAnyOrder("+I[5, 1, hello, 20250809]");
+
+        it.close();
+    }
+
+    /**
+     * T7: Tests that chain table streaming read rejects partition filters via {@code
+     * withPartitionFilter}.
+     *
+     * <p>The {@code withPartitionFilter} API (used for {@code scan.partitions} table option) should
+     * also be rejected.
+     */
+    @Test
+    @Timeout(60)
+    public void testStreamingReadRejectsWithPartitionFilter() throws Exception {
+        createChainTable("chain_pf_api");
+        setupChainTableBranches("chain_pf_api");
+
+        sql(
+                "INSERT INTO `chain_pf_api$branch_delta` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 1, 'v1')");
+
+        FileStoreTable table = paimonTable("chain_pf_api");
+        ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
+
+        // withPartitionFilter(Map) should be rejected
+        assertThatThrownBy(
+                        () ->
+                                scan.withPartitionFilter(
+                                        java.util.Collections.singletonMap("dt", "20250808")))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Partition filter is not supported");
+
+        // withPartitionFilter(PartitionPredicate) should be rejected
+        org.apache.paimon.predicate.PredicateBuilder ppBuilder =
+                new org.apache.paimon.predicate.PredicateBuilder(
+                        table.schema().logicalPartitionType());
+        org.apache.paimon.partition.PartitionPredicate pp =
+                org.apache.paimon.partition.PartitionPredicate.fromPredicate(
+                        table.schema().logicalPartitionType(),
+                        ppBuilder.equal(
+                                0, org.apache.paimon.data.BinaryString.fromString("20250808")));
+        assertThatThrownBy(() -> scan.withPartitionFilter(pp))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("Partition filter is not supported");
     }
 }

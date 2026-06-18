@@ -380,7 +380,11 @@ public class ContinuousFileSplitEnumerator
                 if (bucketDir.startsWith("bucket-")) {
                     try {
                         bucketId = Integer.parseInt(bucketDir.substring("bucket-".length()));
-                    } catch (NumberFormatException ignored) {
+                    } catch (NumberFormatException e) {
+                        LOG.warn(
+                                "Failed to parse bucket id from path '{}', falling back to 0.",
+                                bucketPath,
+                                e);
                     }
                 }
             }

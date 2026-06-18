@@ -22,8 +22,9 @@ import org.apache.paimon.Snapshot;
 import org.apache.paimon.codegen.CodeGenUtils;
 import org.apache.paimon.codegen.RecordComparator;
 import org.apache.paimon.data.BinaryRow;
-import org.apache.paimon.io.DataFileMeta;
 import org.apache.paimon.manifest.PartitionEntry;
+import org.apache.paimon.partition.PartitionPredicate;
+import org.apache.paimon.predicate.PartitionPredicateVisitor;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.source.ChainSplit;
 import org.apache.paimon.table.source.DataFilePlan;
@@ -87,6 +88,9 @@ public class ChainTableStreamScan implements StreamDataTableScan {
     /** Comparator for chain partition keys only. */
     private final RecordComparator chainPartitionComparator;
 
+    /** Partition keys of the table, used to reject partition filters in streaming mode. */
+    private final List<String> partitionKeys;
+
     /**
      * Checkpoint state: the next delta snapshot id to read. Null before Phase 1 completes; non-null
      * once Phase 1 is done or after a stateful restore.
@@ -122,6 +126,7 @@ public class ChainTableStreamScan implements StreamDataTableScan {
         this.chainPartitionComparator =
                 CodeGenUtils.newRecordComparator(
                         partitionProjector.chainPartitionType().getFieldTypes());
+        this.partitionKeys = chainGroupReadTable.schema().partitionKeys();
     }
 
     @Override
@@ -174,45 +179,48 @@ public class ChainTableStreamScan implements StreamDataTableScan {
             deltaSplitsByPartition = Collections.emptyMap();
         }
 
-        // 2. Read all snapshot branch data, grouped by partition.
-        // Reuse batchScan.mainScan which has predicates/shard already applied.
-        Map<BinaryRow, List<DataSplit>> snapshotSplitsByPartition =
-                chainGroupReadTable.wrapped.snapshotManager().latestSnapshotId() != null
-                        ? groupByPartition(batchScan.mainScan)
-                        : Collections.emptyMap();
-
-        // 3. Find the latest snapshot partition per group (based on chain partition keys).
-        //    Only output the latest snapshot partition and delta partitions after it.
+        // 2. List snapshot partitions (lightweight — partition metadata only, no file I/O).
+        //    Find the latest chain partition per group, then scan only those partitions for files.
+        //    This avoids reading file manifests for hundreds of historical partitions that will be
+        //    discarded (only the latest per group is kept).
         Map<Object, BinaryRow> latestChainPartitionPerGroup = new HashMap<>();
-        for (BinaryRow partition : snapshotSplitsByPartition.keySet()) {
-            Object groupKey = toGroupKey(partition);
-            BinaryRow existingLatest = latestChainPartitionPerGroup.get(groupKey);
-            if (existingLatest == null
-                    || chainPartitionComparator.compare(
-                                    partitionProjector.extractChainPartition(partition),
-                                    partitionProjector.extractChainPartition(existingLatest))
-                            > 0) {
-                latestChainPartitionPerGroup.put(groupKey, partition);
+        if (chainGroupReadTable.wrapped.snapshotManager().latestSnapshotId() != null) {
+            DataTableScan partitionListingScan = chainGroupReadTable.wrapped.newScan();
+            applyPredicatesAndShard(partitionListingScan);
+            for (BinaryRow partition : partitionListingScan.listPartitions()) {
+                Object groupKey = toGroupKey(partition);
+                BinaryRow existingLatest = latestChainPartitionPerGroup.get(groupKey);
+                if (existingLatest == null
+                        || chainPartitionComparator.compare(
+                                        partitionProjector.extractChainPartition(partition),
+                                        partitionProjector.extractChainPartition(existingLatest))
+                                > 0) {
+                    latestChainPartitionPerGroup.put(groupKey, partition);
+                }
             }
         }
 
+        // 3. Scan file splits for latest snapshot partitions only.
+        List<BinaryRow> latestPartitions = new ArrayList<>(latestChainPartitionPerGroup.values());
+        Map<BinaryRow, List<DataSplit>> snapshotSplitsByPartition;
+        if (!latestPartitions.isEmpty()) {
+            DataTableScan snapshotScan = chainGroupReadTable.wrapped.newScan();
+            snapshotScan.withPartitionFilter(latestPartitions);
+            applyPredicatesAndShard(snapshotScan);
+            snapshotSplitsByPartition = groupByPartition(snapshotScan);
+        } else {
+            snapshotSplitsByPartition = Collections.emptyMap();
+        }
+
         // 4. Build ChainSplits:
-        //    - For snapshot partitions: only include if chain key == latest for that group.
-        //    - For delta partitions: include if (a) chain key > latest for that group, or
+        //    - Snapshot partitions are already filtered to latest per group.
+        //    - Delta partitions: include if (a) chain key > latest for that group, or
         //      (b) no snapshot exists for that group.
         List<Split> allSplits = new ArrayList<>();
 
         for (Map.Entry<BinaryRow, List<DataSplit>> entry : snapshotSplitsByPartition.entrySet()) {
-            BinaryRow partition = entry.getKey();
-            Object groupKey = toGroupKey(partition);
-            BinaryRow latestPartition = latestChainPartitionPerGroup.get(groupKey);
-            if (chainPartitionComparator.compare(
-                            partitionProjector.extractChainPartition(partition),
-                            partitionProjector.extractChainPartition(latestPartition))
-                    == 0) {
-                for (DataSplit ds : entry.getValue()) {
-                    allSplits.add(dataSplitToChainSplit(ds, snapshotBranch));
-                }
+            for (DataSplit ds : entry.getValue()) {
+                allSplits.add(ChainSplit.from(ds, snapshotBranch));
             }
         }
 
@@ -229,7 +237,7 @@ public class ChainTableStreamScan implements StreamDataTableScan {
                                     partitionProjector.extractChainPartition(latestPartition))
                             > 0) {
                 for (DataSplit ds : entry.getValue()) {
-                    allSplits.add(dataSplitToChainSplit(ds, deltaBranch));
+                    allSplits.add(ChainSplit.from(ds, deltaBranch));
                 }
             }
         }
@@ -294,29 +302,53 @@ public class ChainTableStreamScan implements StreamDataTableScan {
         return partitionProjector.extractGroupPartition(fullPartition);
     }
 
-    /**
-     * Converts a {@link DataSplit} to a {@link ChainSplit} where all files belong to the given
-     * branch. The partition value is preserved as-is (no rewriting).
-     */
-    private static ChainSplit dataSplitToChainSplit(DataSplit dataSplit, String branch) {
-        HashMap<String, String> fileBranchMapping = new HashMap<>();
-        HashMap<String, String> fileBucketPathMapping = new HashMap<>();
-        for (DataFileMeta file : dataSplit.dataFiles()) {
-            fileBranchMapping.put(file.fileName(), branch);
-            fileBucketPathMapping.put(file.fileName(), dataSplit.bucketPath());
-        }
-        return new ChainSplit(
-                dataSplit.partition(),
-                dataSplit.dataFiles(),
-                fileBranchMapping,
-                fileBucketPathMapping);
-    }
-
     @Override
     public InnerTableScan withFilter(Predicate predicate) {
+        if (predicate == null) {
+            return this;
+        }
+        if (!partitionKeys.isEmpty()
+                && predicate.visit(new PartitionPredicateVisitor(partitionKeys))) {
+            throw new UnsupportedOperationException(
+                    "Partition filter is not supported in chain table streaming read. "
+                            + "The chain table streaming scan determines which partitions to read "
+                            + "based on the chain-merge logic across snapshot and delta branches. "
+                            + "Applying a partition filter would interfere with this logic. "
+                            + "If you need to read a specific partition, use batch mode instead.");
+        }
         predicates.add(predicate);
         batchScan.withFilter(predicate);
         deltaStreamScan.withFilter(predicate);
+        return this;
+    }
+
+    @Override
+    public InnerTableScan withPartitionFilter(Map<String, String> partitionSpec) {
+        throw new UnsupportedOperationException(
+                "Partition filter is not supported in chain table streaming read.");
+    }
+
+    @Override
+    public InnerTableScan withPartitionFilter(List<BinaryRow> partitions) {
+        throw new UnsupportedOperationException(
+                "Partition filter is not supported in chain table streaming read.");
+    }
+
+    @Override
+    public InnerTableScan withPartitionFilter(PartitionPredicate partitionPredicate) {
+        if (partitionPredicate != null) {
+            throw new UnsupportedOperationException(
+                    "Partition filter is not supported in chain table streaming read.");
+        }
+        return this;
+    }
+
+    @Override
+    public InnerTableScan withPartitionFilter(Predicate predicate) {
+        if (predicate != null) {
+            throw new UnsupportedOperationException(
+                    "Partition filter is not supported in chain table streaming read.");
+        }
         return this;
     }
 
@@ -345,6 +377,9 @@ public class ChainTableStreamScan implements StreamDataTableScan {
     @Nullable
     @Override
     public Long checkpoint() {
+        if (startingDone) {
+            return deltaStreamScan.checkpoint();
+        }
         return nextDeltaSnapshotId;
     }
 
@@ -363,6 +398,8 @@ public class ChainTableStreamScan implements StreamDataTableScan {
         if (nextSnapshotId != null) {
             startingDone = true;
             deltaStreamScan.restore(nextSnapshotId);
+        } else {
+            startingDone = false;
         }
     }
 

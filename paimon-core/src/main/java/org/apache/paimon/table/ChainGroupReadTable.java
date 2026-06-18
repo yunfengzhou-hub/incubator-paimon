@@ -239,18 +239,7 @@ public class ChainGroupReadTable extends FallbackReadFileStoreTable {
             PredicateBuilder builder = new PredicateBuilder(tableSchema.logicalPartitionType());
             for (Split split : mainScan.plan().splits()) {
                 DataSplit dataSplit = (DataSplit) split;
-                HashMap<String, String> fileBucketPathMapping = new HashMap<>();
-                HashMap<String, String> fileBranchMapping = new HashMap<>();
-                for (DataFileMeta file : dataSplit.dataFiles()) {
-                    fileBucketPathMapping.put(file.fileName(), ((DataSplit) split).bucketPath());
-                    fileBranchMapping.put(file.fileName(), options.scanFallbackSnapshotBranch());
-                }
-                splits.add(
-                        new ChainSplit(
-                                dataSplit.partition(),
-                                dataSplit.dataFiles(),
-                                fileBranchMapping,
-                                fileBucketPathMapping));
+                splits.add(ChainSplit.from(dataSplit, options.scanFallbackSnapshotBranch()));
             }
 
             Set<BinaryRow> snapshotPartitions =

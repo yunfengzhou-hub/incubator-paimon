@@ -235,6 +235,12 @@ INSERT INTO downstream_sink SELECT * FROM default.t;
   an `UnsupportedOperationException` is thrown. To use standard streaming read without chain
   table logic, read from a specific branch table (e.g., `t$branch_delta`) instead of the main
   table.
+- Partition filters are not supported in chain table streaming reads. Specifying a partition
+  filter — either via a `WHERE` clause on partition columns or the `scan.partitions` table
+  option — throws an `UnsupportedOperationException`. This is because the chain table streaming
+  scan determines which partitions to read based on the chain-merge logic across snapshot and
+  delta branches, and applying a partition filter would interfere with this logic. To read a
+  specific partition, use batch mode instead.
 
 ## Group Partition
 
