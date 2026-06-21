@@ -18,9 +18,17 @@
 
 package org.apache.paimon.flink;
 
+import org.apache.paimon.CoreOptions;
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.flink.sink.FlinkSinkBuilder;
+import org.apache.paimon.partition.PartitionPredicate;
+import org.apache.paimon.predicate.Predicate;
+import org.apache.paimon.predicate.PredicateBuilder;
 import org.apache.paimon.table.ChainTableStreamScan;
 import org.apache.paimon.table.FileStoreTable;
+import org.apache.paimon.table.source.DataTableScan;
+import org.apache.paimon.table.source.TableScan;
 import org.apache.paimon.utils.BlockingIterator;
 
 import org.apache.flink.api.common.JobID;
@@ -1533,13 +1541,13 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
 
         // Phase 1: starting
-        org.apache.paimon.table.source.TableScan.Plan plan1 = scan.plan();
+        TableScan.Plan plan1 = scan.plan();
         assertThat(plan1.splits()).as("Phase 1 should produce splits").isNotEmpty();
         Long checkpoint = scan.checkpoint();
         assertThat(checkpoint).as("Checkpoint should be non-null after Phase 1").isNotNull();
 
         // Phase 2: no new data → empty plan
-        org.apache.paimon.table.source.TableScan.Plan plan2 = scan.plan();
+        TableScan.Plan plan2 = scan.plan();
         assertThat(plan2.splits()).as("Phase 2 with no new data should be empty").isEmpty();
 
         // restore(id, scanAll=true): should reset to starting, preserve delta position
@@ -1549,7 +1557,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 .isEqualTo(checkpoint);
 
         // Starting should run again
-        org.apache.paimon.table.source.TableScan.Plan plan3 = scan.plan();
+        TableScan.Plan plan3 = scan.plan();
         assertThat(plan3.splits())
                 .as("Starting should produce splits again after restore(id, true)")
                 .isNotEmpty();
@@ -1611,7 +1619,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 .isNull();
 
         // Starting should run again
-        org.apache.paimon.table.source.TableScan.Plan plan = scan.plan();
+        TableScan.Plan plan = scan.plan();
         assertThat(plan.splits()).as("Starting should produce splits").isNotEmpty();
         assertThat(scan.checkpoint()).as("Checkpoint should be set after new starting").isNotNull();
     }
@@ -1779,12 +1787,12 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         // Shard 0 of 2: should get a subset of data
         ChainTableStreamScan scan0 = (ChainTableStreamScan) table.newStreamScan();
         scan0.withShard(0, 2);
-        org.apache.paimon.table.source.TableScan.Plan plan0 = scan0.plan();
+        TableScan.Plan plan0 = scan0.plan();
 
         // Shard 1 of 2: should get the other subset
         ChainTableStreamScan scan1 = (ChainTableStreamScan) table.newStreamScan();
         scan1.withShard(1, 2);
-        org.apache.paimon.table.source.TableScan.Plan plan1 = scan1.plan();
+        TableScan.Plan plan1 = scan1.plan();
 
         // Together both shards should produce non-empty results
         // (exact split depends on bucket hashing, but total should cover all data)
@@ -1831,7 +1839,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         // Both branches are empty — Phase 1 should produce no splits
         FileStoreTable table = paimonTable("chain_both_empty");
         ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
-        org.apache.paimon.table.source.TableScan.Plan plan1 = scan.plan();
+        TableScan.Plan plan1 = scan.plan();
         assertThat(plan1.splits()).as("Phase 1 with both branches empty should be empty").isEmpty();
 
         // Phase 2: write new delta data and verify it streams through
@@ -1839,7 +1847,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 "INSERT INTO `chain_both_empty$branch_delta` PARTITION (dt = '20250808')"
                         + " VALUES (1, 1, 'v1'), (2, 1, 'v2')");
 
-        org.apache.paimon.table.source.TableScan.Plan plan2 = scan.plan();
+        TableScan.Plan plan2 = scan.plan();
         assertThat(plan2.splits()).as("Phase 2 should pick up new delta data").isNotEmpty();
     }
 
@@ -1888,7 +1896,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
 
         // Phase 1: read initial delta data
-        org.apache.paimon.table.source.TableScan.Plan plan1 = scan.plan();
+        TableScan.Plan plan1 = scan.plan();
         assertThat(plan1.splits()).as("Phase 1 should produce splits").isNotEmpty();
 
         // Phase 2: OVERWRITE the same partition on delta branch.
@@ -1900,7 +1908,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
 
         // Verify scan.plan() does not throw after OVERWRITE
         for (int i = 0; i < 3; i++) {
-            org.apache.paimon.table.source.TableScan.Plan planN = scan.plan();
+            TableScan.Plan planN = scan.plan();
             assertThat(planN).as("plan() should not return null after OVERWRITE").isNotNull();
         }
     }
@@ -1952,7 +1960,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
 
         // Phase 1: snapshot at dt=20250807 (latest), delta at dt=20250808
-        org.apache.paimon.table.source.TableScan.Plan plan1 = scan.plan();
+        TableScan.Plan plan1 = scan.plan();
         int phase1Size = plan1.splits().size();
         assertThat(phase1Size).as("Phase 1 should produce splits").isGreaterThan(0);
 
@@ -1970,7 +1978,7 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         //   - Delta dt=20250808 excluded (older than latest snapshot dt=20250809)
         //   - Delta dt=20250810 included (newer than dt=20250809)
         scan.restore(null);
-        org.apache.paimon.table.source.TableScan.Plan plan2 = scan.plan();
+        TableScan.Plan plan2 = scan.plan();
         assertThat(plan2.splits())
                 .as("Restore(null) should re-run Phase 1 with current data")
                 .isNotEmpty();
@@ -1997,12 +2005,10 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         ChainTableStreamScan scan = (ChainTableStreamScan) table.newStreamScan();
 
         // dt is the 4th field (index 3) in the schema: t1(0), t2(1), t3(2), dt(3)
-        org.apache.paimon.predicate.PredicateBuilder builder =
-                new org.apache.paimon.predicate.PredicateBuilder(table.rowType());
+        PredicateBuilder builder = new PredicateBuilder(table.rowType());
 
         // Partition-only filter should be rejected
-        org.apache.paimon.predicate.Predicate partitionFilter =
-                builder.equal(3, org.apache.paimon.data.BinaryString.fromString("20250808"));
+        Predicate partitionFilter = builder.equal(3, BinaryString.fromString("20250808"));
         assertThatThrownBy(() -> scan.withFilter(partitionFilter))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("Partition filter is not supported");
@@ -2110,16 +2116,103 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                 .hasMessageContaining("Partition filter is not supported");
 
         // withPartitionFilter(PartitionPredicate) should be rejected
-        org.apache.paimon.predicate.PredicateBuilder ppBuilder =
-                new org.apache.paimon.predicate.PredicateBuilder(
-                        table.schema().logicalPartitionType());
-        org.apache.paimon.partition.PartitionPredicate pp =
-                org.apache.paimon.partition.PartitionPredicate.fromPredicate(
+        PredicateBuilder ppBuilder = new PredicateBuilder(table.schema().logicalPartitionType());
+        PartitionPredicate pp =
+                PartitionPredicate.fromPredicate(
                         table.schema().logicalPartitionType(),
-                        ppBuilder.equal(
-                                0, org.apache.paimon.data.BinaryString.fromString("20250808")));
+                        ppBuilder.equal(0, BinaryString.fromString("20250808")));
         assertThatThrownBy(() -> scan.withPartitionFilter(pp))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("Partition filter is not supported");
+    }
+
+    /**
+     * Tests that chain table streaming rejects checkpoint-align mode at job construction time, not
+     * at runtime. ChainSplit has no snapshotId and cannot participate in snapshot-aligned
+     * checkpoint grouping.
+     */
+    @Test
+    public void testStreamingReadRejectsCheckpointAlign() throws Exception {
+        createChainTable("chain_align");
+        setupChainTableBranches("chain_align");
+
+        sql(
+                "INSERT INTO `chain_align$branch_delta` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 1, 'v1')");
+
+        // Setting checkpoint-align.enabled on a chain table streaming read should throw
+        // at job construction time, not at runtime when ChainSplits are encountered.
+        assertThatThrownBy(
+                        () ->
+                                sEnv.executeSql(
+                                        "SELECT * FROM chain_align "
+                                                + "/*+ OPTIONS('source.checkpoint-align.enabled' = 'true') */"))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining(
+                        "Chain table streaming is not compatible with checkpoint-align");
+    }
+
+    /**
+     * Tests that primary-key predicates do NOT affect partition discovery in chain table streaming
+     * Phase 1. This is the scenario from JingsongLi's review comment:
+     *
+     * <p>"if the latest snapshot partition no longer has k=1 but an older delta partition still
+     * does, SELECT ... WHERE k=1 can make this listing miss the latest snapshot partition and then
+     * include the old delta row, even though that partition should be considered outdated."
+     *
+     * <p>The test creates: snapshot@20250808 with t1=1,2; snapshot@20250809 with t1=3,4 (no t1=1);
+     * delta@20250808 with t1=1. Then filters on t1=1 (a primary key field). Partition discovery
+     * must still see both snapshot partitions so the chain boundary is correct.
+     */
+    @Test
+    public void testStreamingReadPKFilterDoesNotAffectPartitionDiscovery() throws Exception {
+        createChainTable("chain_pk_filter");
+        setupChainTableBranches("chain_pk_filter");
+
+        // Snapshot@20250808: has t1=1 and t1=2
+        sql(
+                "INSERT INTO `chain_pk_filter$branch_snapshot` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 1, 'v1'), (2, 1, 'v2')");
+        // Snapshot@20250809: has t1=3 and t1=4 (NO t1=1)
+        sql(
+                "INSERT INTO `chain_pk_filter$branch_snapshot` PARTITION (dt = '20250809')"
+                        + " VALUES (3, 1, 'v3'), (4, 1, 'v4')");
+
+        // Delta@20250808: has t1=1
+        sql(
+                "INSERT INTO `chain_pk_filter$branch_delta` PARTITION (dt = '20250808')"
+                        + " VALUES (1, 2, 'delta_v1')");
+
+        // --- Part 1: Verify listPartitions() with a PK predicate ---
+        FileStoreTable mainTable = paimonTable("chain_pk_filter");
+        FileStoreTable snapshotTable =
+                mainTable.copy(
+                        java.util.Collections.singletonMap(CoreOptions.BRANCH.key(), "snapshot"));
+
+        DataTableScan scan = snapshotTable.newScan();
+        PredicateBuilder builder = new PredicateBuilder(snapshotTable.rowType());
+        // t1 is field index 0, part of primary key (dt, t1).
+        // Only snapshot@20250808 has t1=1.
+        Predicate t1Equals1 = builder.equal(0, 1L);
+        scan.withFilter(t1Equals1);
+
+        // listPartitions() must return BOTH snapshot partitions even though only
+        // 20250808 contains t1=1. If it returned only 20250808, the chain boundary
+        // would be wrong and stale data could be included.
+        List<BinaryRow> partitions = scan.listPartitions();
+        assertThat(partitions)
+                .as(
+                        "listPartitions() must return all snapshot partitions even with a PK filter. "
+                                + "If only dt=20250808 is returned, the chain boundary is wrong.")
+                .hasSize(2);
+
+        // --- Part 2: Verify filtered batch SELECT returns correct data ---
+        // Chain-merged batch view: snapshot@20250808(t1=1,2), snapshot@20250809(t1=3,4).
+        // WHERE t1 = 1 should return only the snapshot row (t1=1, dt=20250808).
+        List<String> filtered = collectResult("SELECT * FROM chain_pk_filter WHERE t1 = 1");
+        assertThat(filtered)
+                .as("WHERE t1=1 should find the snapshot row at dt=20250808")
+                .hasSize(1)
+                .containsExactly("+I[1, 1, v1, 20250808]");
     }
 }

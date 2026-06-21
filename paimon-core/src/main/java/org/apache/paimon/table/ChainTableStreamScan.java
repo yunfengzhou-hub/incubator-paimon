@@ -186,7 +186,6 @@ public class ChainTableStreamScan implements StreamDataTableScan {
         Map<Object, BinaryRow> latestChainPartitionPerGroup = new HashMap<>();
         if (chainGroupReadTable.wrapped.snapshotManager().latestSnapshotId() != null) {
             DataTableScan partitionListingScan = chainGroupReadTable.wrapped.newScan();
-            applyPredicatesAndShard(partitionListingScan);
             for (BinaryRow partition : partitionListingScan.listPartitions()) {
                 Object groupKey = toGroupKey(partition);
                 BinaryRow existingLatest = latestChainPartitionPerGroup.get(groupKey);
