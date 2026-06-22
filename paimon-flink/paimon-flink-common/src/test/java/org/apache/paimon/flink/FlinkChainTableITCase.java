@@ -46,6 +46,8 @@ import org.apache.flink.types.RowKind;
 import org.apache.flink.util.CloseableIterator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
@@ -60,6 +62,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /** IT cases for chain table using Flink SQL. */
 public class FlinkChainTableITCase extends CatalogITCaseBase {
+
+    private static final Logger LOG = LoggerFactory.getLogger(FlinkChainTableITCase.class);
 
     private List<String> collectResult(String query) throws Exception {
         List<String> result = new ArrayList<>();
@@ -791,19 +795,24 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         long deadline = System.currentTimeMillis() + 60_000;
         while (System.currentTimeMillis() < deadline) {
             AtomicBoolean allRunning = new AtomicBoolean(true);
-            miniCluster
-                    .getExecutionGraph(jobID)
-                    .thenAccept(
-                            eg ->
-                                    eg.getAllExecutionVertices()
-                                            .forEach(
-                                                    v -> {
-                                                        if (v.getExecutionState()
-                                                                != ExecutionState.RUNNING) {
-                                                            allRunning.set(false);
-                                                        }
-                                                    }))
-                    .get();
+            try {
+                miniCluster
+                        .getExecutionGraph(jobID)
+                        .thenAccept(
+                                eg ->
+                                        eg.getAllExecutionVertices()
+                                                .forEach(
+                                                        v -> {
+                                                            if (v.getExecutionState()
+                                                                    != ExecutionState.RUNNING) {
+                                                                allRunning.set(false);
+                                                            }
+                                                        }))
+                        .get();
+            } catch (Exception e) {
+                // Job not yet available — retry
+                allRunning.set(false);
+            }
             if (allRunning.get()) {
                 return;
             }
@@ -1471,27 +1480,41 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         MiniCluster miniCluster = (MiniCluster) field.get(jobClient);
         JobID jobID = jobClient.getJobID();
 
-        // Wait for all tasks to be RUNNING
-        AtomicBoolean allRunning = new AtomicBoolean(false);
-        while (!allRunning.get()) {
-            allRunning.set(true);
-            Thread.sleep(1000);
-            miniCluster
-                    .getExecutionGraph(jobID)
-                    .thenAccept(
-                            eg ->
-                                    eg.getAllExecutionVertices()
-                                            .forEach(
-                                                    v -> {
-                                                        if (v.getExecutionState()
-                                                                != ExecutionState.RUNNING) {
-                                                            allRunning.set(false);
-                                                        }
-                                                    }))
-                    .get();
-        }
+        while (true) {
+            // Wait for all tasks to be RUNNING
+            AtomicBoolean allRunning = new AtomicBoolean(false);
+            while (!allRunning.get()) {
+                allRunning.set(true);
+                Thread.sleep(1000);
+                try {
+                    miniCluster
+                            .getExecutionGraph(jobID)
+                            .thenAccept(
+                                    eg ->
+                                            eg.getAllExecutionVertices()
+                                                    .forEach(
+                                                            v -> {
+                                                                if (v.getExecutionState()
+                                                                        != ExecutionState.RUNNING) {
+                                                                    allRunning.set(false);
+                                                                }
+                                                            }))
+                            .get();
+                } catch (Exception e) {
+                    // Job not yet available — retry
+                    allRunning.set(false);
+                }
+            }
 
-        return miniCluster.triggerCheckpoint(jobID).get();
+            try {
+                return miniCluster.triggerCheckpoint(jobID).get();
+            } catch (Exception e) {
+                // Job may have failed between the wait loop and the checkpoint trigger.
+                // Log and retry — the test's @Timeout will catch genuine hangs.
+                LOG.error("Checkpoint trigger failed for job {}, retrying", jobID, e);
+                Thread.sleep(2000);
+            }
+        }
     }
 
     // =========================================================================
