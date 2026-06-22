@@ -793,28 +793,63 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         JobID jobID = jobClient.getJobID();
 
         long deadline = System.currentTimeMillis() + 60_000;
+        int pollCount = 0;
         while (System.currentTimeMillis() < deadline) {
+            pollCount++;
+            final int currentPoll = pollCount;
             AtomicBoolean allRunning = new AtomicBoolean(true);
+            AtomicBoolean hasVertices = new AtomicBoolean(false);
             try {
                 miniCluster
                         .getExecutionGraph(jobID)
                         .thenAccept(
-                                eg ->
-                                        eg.getAllExecutionVertices()
-                                                .forEach(
-                                                        v -> {
-                                                            if (v.getExecutionState()
-                                                                    != ExecutionState.RUNNING) {
-                                                                allRunning.set(false);
-                                                            }
-                                                        }))
+                                eg -> {
+                                    int count = 0;
+                                    for (org.apache.flink.runtime.executiongraph
+                                                    .AccessExecutionVertex
+                                            v : eg.getAllExecutionVertices()) {
+                                        hasVertices.set(true);
+                                        count++;
+                                        if (v.getExecutionState() != ExecutionState.RUNNING) {
+                                            allRunning.set(false);
+                                        }
+                                        if (currentPoll <= 3 || currentPoll % 10 == 0) {
+                                            LOG.info(
+                                                    "[waitForJobRunning] job={} task={} state={}",
+                                                    jobID,
+                                                    v.getTaskNameWithSubtaskIndex(),
+                                                    v.getExecutionState());
+                                        }
+                                    }
+                                    if (currentPoll <= 3 || currentPoll % 10 == 0) {
+                                        LOG.info(
+                                                "[waitForJobRunning] job={} vertexCount={}",
+                                                jobID,
+                                                count);
+                                    }
+                                })
                         .get();
             } catch (Exception e) {
                 // Job not yet available — retry
+                LOG.info(
+                        "[waitForJobRunning] job={} getExecutionGraph failed (poll #{}): {}",
+                        jobID,
+                        currentPoll,
+                        e.getMessage());
                 allRunning.set(false);
             }
-            if (allRunning.get()) {
+            if (allRunning.get() && hasVertices.get()) {
+                LOG.info(
+                        "[waitForJobRunning] job={} all tasks RUNNING after {} polls",
+                        jobID,
+                        currentPoll);
                 return;
+            }
+            if (!hasVertices.get() && currentPoll <= 3) {
+                LOG.info(
+                        "[waitForJobRunning] job={} empty execution graph (poll #{}), retrying",
+                        jobID,
+                        currentPoll);
             }
             Thread.sleep(1000);
         }
@@ -1480,7 +1515,10 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
         MiniCluster miniCluster = (MiniCluster) field.get(jobClient);
         JobID jobID = jobClient.getJobID();
 
+        int attempt = 0;
         while (true) {
+            attempt++;
+            final int currentAttempt = attempt;
             // Wait for all tasks to be RUNNING
             AtomicBoolean allRunning = new AtomicBoolean(false);
             while (!allRunning.get()) {
@@ -1494,14 +1532,29 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
                                             eg.getAllExecutionVertices()
                                                     .forEach(
                                                             v -> {
-                                                                if (v.getExecutionState()
-                                                                        != ExecutionState.RUNNING) {
+                                                                ExecutionState st =
+                                                                        v.getExecutionState();
+                                                                if (st != ExecutionState.RUNNING) {
                                                                     allRunning.set(false);
+                                                                }
+                                                                if (currentAttempt <= 2) {
+                                                                    LOG.info(
+                                                                            "[triggerCheckpoint] job={} attempt={} task={} state={}",
+                                                                            jobID,
+                                                                            currentAttempt,
+                                                                            v
+                                                                                    .getTaskNameWithSubtaskIndex(),
+                                                                            st);
                                                                 }
                                                             }))
                             .get();
                 } catch (Exception e) {
                     // Job not yet available — retry
+                    LOG.info(
+                            "[triggerCheckpoint] job={} attempt={} getExecutionGraph failed: {}",
+                            jobID,
+                            currentAttempt,
+                            e.getMessage());
                     allRunning.set(false);
                 }
             }
@@ -1509,9 +1562,11 @@ public class FlinkChainTableITCase extends CatalogITCaseBase {
             try {
                 return miniCluster.triggerCheckpoint(jobID).get();
             } catch (Exception e) {
-                // Job may have failed between the wait loop and the checkpoint trigger.
-                // Log and retry — the test's @Timeout will catch genuine hangs.
-                LOG.error("Checkpoint trigger failed for job {}, retrying", jobID, e);
+                LOG.error(
+                        "[triggerCheckpoint] job={} attempt={} triggerCheckpoint failed: {}",
+                        jobID,
+                        currentAttempt,
+                        e.getMessage());
                 Thread.sleep(2000);
             }
         }

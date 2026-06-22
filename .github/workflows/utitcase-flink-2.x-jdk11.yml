@@ -52,15 +52,14 @@ jobs:
 
       - name: Test Flink
         run: |
-          # run tests with random timezone to find out timezone related bugs
+          # TEMPORARY: only run the failing test for debugging
           . .github/workflows/utils.sh
           jvm_timezone=$(random_timezone)
-          echo "JVM timezone is set to $jvm_timezone"
-          test_modules=""
-          for suffix in 2.0 2.1 2.2 common; do
-          test_modules+="org.apache.paimon:paimon-flink-${suffix},"
-          done
-          test_modules="${test_modules%,}"
-          mvn -T 2C -B -ntp test verify -Pflink2,spark3 -pl "${test_modules}" -Duser.timezone=$jvm_timezone
+          echo "JVM timezone is $jvm_timezone"
+          mvn -B -ntp test -Pflink2,spark3 \
+            -pl org.apache.paimon:paimon-flink-common \
+            -Dtest="FlinkChainTableITCase#testStreamingReadChainTableStatefulRestart" \
+            -DfailIfNoTests=false \
+            -Duser.timezone=$jvm_timezone
         env:
           MAVEN_OPTS: -Xmx4096m
