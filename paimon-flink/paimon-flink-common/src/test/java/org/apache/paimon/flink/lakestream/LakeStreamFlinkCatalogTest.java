@@ -477,10 +477,20 @@ public class LakeStreamFlinkCatalogTest {
     // ------------------------------------------------------------------------
 
     @Test
-    public void testFlinkTableFactoryIsExposed() throws Exception {
+    public void testFlinkTableFactoryConstructorOverloads() throws Exception {
         LakeStreamFlinkCatalog catalog = wrapperWithStore();
 
-        assertThat(catalog.getFactory().get()).isInstanceOf(FlinkTableFactory.class);
+        assertThat(new FlinkTableFactory().factoryIdentifier())
+                .isEqualTo(FlinkCatalogFactory.IDENTIFIER);
+        assertThat(new FlinkTableFactory(null, null).factoryIdentifier())
+                .isEqualTo(FlinkCatalogFactory.IDENTIFIER);
+        assertThat(
+                        new FlinkTableFactory(
+                                        catalog.paimonCatalog(),
+                                        new LakeStreamTableFactoryRouting(
+                                                catalog.paimonCatalog(), catalog))
+                                .factoryIdentifier())
+                .isEqualTo(FlinkCatalogFactory.IDENTIFIER);
         catalog.close();
     }
 

@@ -360,7 +360,8 @@ public class LakeStreamFlinkCatalog extends AbstractCatalog
 
     @Override
     public Optional<Factory> getFactory() {
-        return Optional.of(new FlinkTableFactory(paimon));
+        return Optional.of(
+                new FlinkTableFactory(paimon, new LakeStreamTableFactoryRouting(paimon, this)));
     }
 
     @Override
