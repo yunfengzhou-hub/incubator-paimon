@@ -23,6 +23,7 @@ import org.apache.paimon.catalog.Identifier;
 import org.apache.paimon.flink.FlinkCatalog;
 import org.apache.paimon.flink.FlinkCatalogFactory;
 import org.apache.paimon.flink.LogicalTypeConversion;
+import org.apache.paimon.flink.lakestream.LakeStreamFlinkCatalog;
 import org.apache.paimon.options.Options;
 import org.apache.paimon.schema.SchemaChange;
 import org.apache.paimon.table.Table;
@@ -124,12 +125,13 @@ public class PaimonMetadataApplier implements MetadataApplier {
                             FlinkCatalogFactory.class,
                             FlinkCatalogFactory.IDENTIFIER);
             FlinkCatalog flinkCatalog =
-                    flinkCatalogFactory.createCatalog(
-                            new FactoryUtil.DefaultCatalogContext(
-                                    "flink-catalog",
-                                    catalogOptions.toMap(),
-                                    null,
-                                    FlinkCatalog.class.getClassLoader()));
+                    LakeStreamFlinkCatalog.unwrapPaimonCatalog(
+                            flinkCatalogFactory.createCatalog(
+                                    new FactoryUtil.DefaultCatalogContext(
+                                            "flink-catalog",
+                                            catalogOptions.toMap(),
+                                            null,
+                                            FlinkCatalog.class.getClassLoader())));
             catalog = flinkCatalog.catalog();
         }
         SchemaChangeEventVisitor.visit(

@@ -22,6 +22,7 @@ import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.flink.FlinkCatalog;
 import org.apache.paimon.flink.FlinkCatalogFactory;
+import org.apache.paimon.flink.lakestream.LakeStreamFlinkCatalog;
 
 import org.apache.flink.configuration.ReadableConfig;
 import org.apache.flink.table.factories.FactoryUtil;
@@ -36,12 +37,13 @@ public class CDCUtils {
                         FlinkCatalogFactory.class,
                         FlinkCatalogFactory.IDENTIFIER);
         FlinkCatalog flinkCatalog =
-                flinkCatalogFactory.createCatalog(
-                        new FactoryUtil.DefaultCatalogContext(
-                                "flink-catalog",
-                                catalogContext.options().toMap(),
-                                flinkConfig,
-                                FlinkCatalog.class.getClassLoader()));
+                LakeStreamFlinkCatalog.unwrapPaimonCatalog(
+                        flinkCatalogFactory.createCatalog(
+                                new FactoryUtil.DefaultCatalogContext(
+                                        "flink-catalog",
+                                        catalogContext.options().toMap(),
+                                        flinkConfig,
+                                        FlinkCatalog.class.getClassLoader())));
         return flinkCatalog.catalog();
     }
 }

@@ -21,6 +21,7 @@ package org.apache.paimon.flink.pipeline.cdc.source;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.flink.FlinkCatalog;
 import org.apache.paimon.flink.FlinkCatalogFactory;
+import org.apache.paimon.flink.lakestream.LakeStreamFlinkCatalog;
 import org.apache.paimon.options.Options;
 
 import org.apache.flink.cdc.common.configuration.Configuration;
@@ -74,16 +75,17 @@ public abstract class CDCSourceITCaseBase {
                         FlinkCatalogFactory.class.getClassLoader(),
                         FlinkCatalogFactory.class,
                         FlinkCatalogFactory.IDENTIFIER);
-        FlinkCatalog flinkCatalog =
+        org.apache.flink.table.catalog.Catalog created =
                 flinkCatalogFactory.createCatalog(
                         new FactoryUtil.DefaultCatalogContext(
                                 "flink-catalog",
                                 getCatalogOptions().toMap(),
                                 null,
                                 FlinkCatalog.class.getClassLoader()));
-        catalog = flinkCatalog.catalog();
+        catalog = LakeStreamFlinkCatalog.unwrapPaimonCatalog(created).catalog();
 
-        tEnv.registerCatalog(CATALOG_NAME, flinkCatalog);
+        // register what the factory returned, so that a lake-stream catalog stays wrapped here too
+        tEnv.registerCatalog(CATALOG_NAME, created);
         tEnv.useCatalog(CATALOG_NAME);
     }
 

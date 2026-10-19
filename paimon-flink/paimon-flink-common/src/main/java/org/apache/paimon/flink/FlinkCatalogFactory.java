@@ -21,6 +21,8 @@ package org.apache.paimon.flink;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.flink.lakestream.LakeStreamFlinkCatalog;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
 
 import java.util.Collections;
@@ -49,12 +51,20 @@ public class FlinkCatalogFactory implements org.apache.flink.table.factories.Cat
     }
 
     @Override
-    public FlinkCatalog createCatalog(Context context) {
-        return createCatalog(
-                context.getName(),
-                CatalogContext.create(
-                        Options.fromMap(context.getOptions()), new FlinkFileIOLoader()),
-                context.getClassLoader());
+    public org.apache.flink.table.catalog.Catalog createCatalog(Context context) {
+        FlinkCatalog flinkCatalog =
+                createCatalog(
+                        context.getName(),
+                        CatalogContext.create(
+                                Options.fromMap(context.getOptions()), new FlinkFileIOLoader()),
+                        context.getClassLoader());
+        String lakeStreamStore = context.getOptions().get(CatalogOptions.LAKE_STREAM_STORE.key());
+        if (lakeStreamStore != null && !lakeStreamStore.trim().isEmpty()) {
+            // lake-stream mode (PIP-39): wrap the Paimon catalog so that '$rt' reads and the
+            // lake-stream store catalog lifecycle are handled by LakeStreamFlinkCatalog
+            return new LakeStreamFlinkCatalog(flinkCatalog, context.getConfiguration());
+        }
+        return flinkCatalog;
     }
 
     public static FlinkCatalog createCatalog(
