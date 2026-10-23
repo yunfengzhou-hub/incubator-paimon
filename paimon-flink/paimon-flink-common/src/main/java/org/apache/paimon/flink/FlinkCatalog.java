@@ -972,7 +972,7 @@ public class FlinkCatalog extends AbstractCatalog {
     public final void open() throws CatalogException {}
 
     @Override
-    public final void close() throws CatalogException {
+    public void close() throws CatalogException {
         try {
             catalog.close();
         } catch (Exception e) {

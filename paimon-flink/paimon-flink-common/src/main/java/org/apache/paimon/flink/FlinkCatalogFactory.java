@@ -21,7 +21,12 @@ package org.apache.paimon.flink;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
+import org.apache.paimon.flink.lakestream.LakeStreamFlinkCatalog;
+import org.apache.paimon.options.CatalogOptions;
 import org.apache.paimon.options.Options;
+
+import org.apache.flink.configuration.Configuration;
+import org.apache.flink.configuration.ReadableConfig;
 
 import java.util.Collections;
 import java.util.Set;
@@ -54,16 +59,34 @@ public class FlinkCatalogFactory implements org.apache.flink.table.factories.Cat
                 context.getName(),
                 CatalogContext.create(
                         Options.fromMap(context.getOptions()), new FlinkFileIOLoader()),
-                context.getClassLoader());
+                context.getClassLoader(),
+                context.getConfiguration());
     }
 
     public static FlinkCatalog createCatalog(
             String catalogName, CatalogContext context, ClassLoader classLoader) {
-        return new FlinkCatalog(
-                CatalogFactory.createCatalog(context, classLoader),
-                catalogName,
-                context.options().get(DEFAULT_DATABASE),
-                context.options());
+        return createCatalog(catalogName, context, classLoader, new Configuration());
+    }
+
+    /**
+     * Shared by the SPI entry point above and the static helper, so that a catalog whose options
+     * name a Lakestream Store gets lake-stream behaviour whichever of the two created it. The
+     * returned object is a {@link FlinkCatalog} either way.
+     */
+    private static FlinkCatalog createCatalog(
+            String catalogName,
+            CatalogContext context,
+            ClassLoader classLoader,
+            ReadableConfig flinkConfiguration) {
+        Options options = context.options();
+        Catalog catalog = CatalogFactory.createCatalog(context, classLoader);
+        String defaultDatabase = options.get(DEFAULT_DATABASE);
+        String lakeStreamStore = options.get(CatalogOptions.LAKE_STREAM_STORE.key());
+        if (lakeStreamStore != null && !lakeStreamStore.trim().isEmpty()) {
+            return new LakeStreamFlinkCatalog(
+                    catalog, catalogName, defaultDatabase, options, flinkConfiguration);
+        }
+        return new FlinkCatalog(catalog, catalogName, defaultDatabase, options);
     }
 
     public static FlinkCatalog createCatalog(String catalogName, Catalog catalog, Options options) {

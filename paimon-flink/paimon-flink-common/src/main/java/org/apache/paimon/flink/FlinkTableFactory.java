@@ -19,6 +19,7 @@
 package org.apache.paimon.flink;
 
 import org.apache.paimon.CoreOptions;
+import org.apache.paimon.flink.lakestream.LakeStreamTableFactoryRouting;
 import org.apache.paimon.fs.FileIO;
 import org.apache.paimon.fs.Path;
 import org.apache.paimon.options.Options;
@@ -43,6 +44,12 @@ public class FlinkTableFactory extends AbstractFlinkTableFactory {
 
     public FlinkTableFactory(@Nullable FlinkCatalog flinkCatalog) {
         super(flinkCatalog);
+    }
+
+    public FlinkTableFactory(
+            @Nullable FlinkCatalog flinkCatalog,
+            @Nullable LakeStreamTableFactoryRouting lakeStream) {
+        super(flinkCatalog, lakeStream);
     }
 
     @Override
